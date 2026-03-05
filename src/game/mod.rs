@@ -27,6 +27,10 @@ const DEFAULT_HEIGHT: i32 = 26;
 const FOV_RADIUS: i32 = 8;
 const LOG_CAPACITY: usize = 60;
 const SAVE_FILE_PATH: &str = "saves/save1.json";
+const NOISE_RADIUS_MOVE: i32 = 6;
+const NOISE_RADIUS_INTERACT: i32 = 4;
+const ALERT_TURNS: u8 = 4;
+const FLEE_TURNS: u8 = 3;
 
 #[derive(Debug, Clone, Copy)]
 pub struct GameConfig {
@@ -136,12 +140,34 @@ struct Monster {
     glyph: char,
     pos: Pos,
     stats: Stats,
+    #[serde(default)]
+    ai_state: MonsterAiState,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct GroundItem {
     item_id: String,
     pos: Pos,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+enum MonsterAiState {
+    Patrol,
+    Alert { target: Pos, turns_left: u8 },
+    Flee { turns_left: u8 },
+}
+
+impl Default for MonsterAiState {
+    fn default() -> Self {
+        Self::Patrol
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct NoiseEvent {
+    pos: Pos,
+    radius: i32,
 }
 
 #[derive(Debug)]
@@ -161,6 +187,7 @@ struct Game {
     ui_mode: UiMode,
     inventory_selected: usize,
     data: GameData,
+    pending_noise: Option<NoiseEvent>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -325,6 +352,7 @@ impl Game {
             ui_mode: UiMode::Normal,
             inventory_selected: 0,
             data,
+            pending_noise: None,
         };
 
         game.spawn_from_layout(package_pos, monster_spawns, item_spawns);
@@ -361,6 +389,7 @@ impl Game {
                     atk: def.atk,
                     def: def.def,
                 },
+                ai_state: MonsterAiState::Patrol,
             });
         }
 
@@ -448,6 +477,7 @@ impl Game {
         if self.ui_mode == UiMode::Inventory {
             let consumed_turn = self.apply_inventory_action(action);
             if consumed_turn {
+                self.pending_noise = self.noise_from_action(action);
                 self.finish_player_turn();
             }
             return;
@@ -473,8 +503,31 @@ impl Game {
         }
 
         if consumed_turn {
+            self.pending_noise = self.noise_from_action(action);
             self.finish_player_turn();
         }
+    }
+
+    fn noise_from_action(&self, action: Action) -> Option<NoiseEvent> {
+        let radius = match action {
+            Action::Move(_, _) => NOISE_RADIUS_MOVE,
+            Action::Pickup
+            | Action::UsePotion
+            | Action::InventoryUse
+            | Action::InventoryDrop
+            | Action::InventoryUnequip => NOISE_RADIUS_INTERACT,
+            Action::Wait
+            | Action::Save
+            | Action::Load
+            | Action::ToggleInventory
+            | Action::ToggleHelp
+            | Action::Escape
+            | Action::Quit => return None,
+        };
+        Some(NoiseEvent {
+            pos: self.player.pos,
+            radius,
+        })
     }
 
     fn apply_inventory_action(&mut self, action: Action) -> bool {
@@ -563,6 +616,7 @@ impl Game {
         }
         self.turn += 1;
         self.monster_turn();
+        self.pending_noise = None;
         self.cleanup_dead_monsters();
         self.check_victory();
         self.recompute_fov();
@@ -918,6 +972,7 @@ impl Game {
             return;
         }
 
+        let noise_event = self.pending_noise;
         let mut occupied: HashSet<Pos> = self
             .monsters
             .iter()
@@ -931,8 +986,40 @@ impl Game {
             }
 
             occupied.remove(&self.monsters[idx].pos);
+            let monster_pos = self.monsters[idx].pos;
+            let low_hp_threshold = (self.monsters[idx].stats.max_hp / 3).max(1);
+            let is_low_hp = self.monsters[idx].stats.hp <= low_hp_threshold;
 
-            if self.monsters[idx].pos.is_adjacent4(self.player.pos) {
+            let sees_player = monster_pos.manhattan(self.player.pos) <= FOV_RADIUS
+                && line_of_sight(&self.map, monster_pos, self.player.pos);
+
+            self.monsters[idx].ai_state = if is_low_hp {
+                MonsterAiState::Flee {
+                    turns_left: FLEE_TURNS,
+                }
+            } else if sees_player {
+                MonsterAiState::Alert {
+                    target: self.player.pos,
+                    turns_left: ALERT_TURNS,
+                }
+            } else if let Some(noise) = noise_event {
+                if monster_pos.manhattan(noise.pos) <= noise.radius {
+                    MonsterAiState::Alert {
+                        target: noise.pos,
+                        turns_left: ALERT_TURNS,
+                    }
+                } else {
+                    Self::decay_ai_state(self.monsters[idx].ai_state)
+                }
+            } else {
+                Self::decay_ai_state(self.monsters[idx].ai_state)
+            };
+
+            let current_state = self.monsters[idx].ai_state;
+
+            if monster_pos.is_adjacent4(self.player.pos)
+                && !matches!(current_state, MonsterAiState::Flee { turns_left: _ })
+            {
                 let damage = roll_damage(
                     self.monsters[idx].stats.atk,
                     self.player_effective_def(),
@@ -952,30 +1039,33 @@ impl Game {
                 continue;
             }
 
-            let sees_player = self.monsters[idx].pos.manhattan(self.player.pos) <= FOV_RADIUS
-                && line_of_sight(&self.map, self.monsters[idx].pos, self.player.pos);
-
             let mut moved = false;
-            if sees_player {
-                if let Some(step) = bfs_next_step(
-                    &self.map,
-                    self.monsters[idx].pos,
-                    self.player.pos,
-                    &occupied,
-                ) {
-                    if step != self.player.pos && !occupied.contains(&step) {
+            match current_state {
+                MonsterAiState::Flee { turns_left: _ } => {
+                    if let Some(step) = self.best_flee_step(monster_pos, &occupied) {
                         self.monsters[idx].pos = step;
                         moved = true;
                     }
                 }
+                MonsterAiState::Alert {
+                    target,
+                    turns_left: _,
+                } => {
+                    if let Some(step) = bfs_next_step(&self.map, monster_pos, target, &occupied) {
+                        if step != self.player.pos && !occupied.contains(&step) {
+                            self.monsters[idx].pos = step;
+                            moved = true;
+                        }
+                    }
+                }
+                MonsterAiState::Patrol => {}
             }
 
             if !moved {
                 let dirs = [(0, -1), (0, 1), (-1, 0), (1, 0)];
                 let mut choices = Vec::new();
                 for (dx, dy) in dirs {
-                    let next =
-                        Pos::new(self.monsters[idx].pos.x + dx, self.monsters[idx].pos.y + dy);
+                    let next = Pos::new(monster_pos.x + dx, monster_pos.y + dy);
                     if next == self.player.pos {
                         continue;
                     }
@@ -990,6 +1080,48 @@ impl Game {
 
             occupied.insert(self.monsters[idx].pos);
         }
+    }
+
+    fn decay_ai_state(state: MonsterAiState) -> MonsterAiState {
+        match state {
+            MonsterAiState::Patrol => MonsterAiState::Patrol,
+            MonsterAiState::Alert { target, turns_left } => {
+                if turns_left > 1 {
+                    MonsterAiState::Alert {
+                        target,
+                        turns_left: turns_left - 1,
+                    }
+                } else {
+                    MonsterAiState::Patrol
+                }
+            }
+            MonsterAiState::Flee { turns_left } => {
+                if turns_left > 1 {
+                    MonsterAiState::Flee {
+                        turns_left: turns_left - 1,
+                    }
+                } else {
+                    MonsterAiState::Patrol
+                }
+            }
+        }
+    }
+
+    fn best_flee_step(&self, from: Pos, occupied: &HashSet<Pos>) -> Option<Pos> {
+        let dirs = [(0, -1), (0, 1), (-1, 0), (1, 0)];
+        let mut best: Option<(Pos, i32)> = None;
+        for (dx, dy) in dirs {
+            let next = Pos::new(from.x + dx, from.y + dy);
+            if next == self.player.pos || occupied.contains(&next) || !self.map.is_walkable(next) {
+                continue;
+            }
+            let score = next.manhattan(self.player.pos);
+            match best {
+                Some((_, best_score)) if score <= best_score => {}
+                _ => best = Some((next, score)),
+            }
+        }
+        best.map(|(pos, _)| pos)
     }
 
     fn check_victory(&mut self) {
@@ -1074,6 +1206,7 @@ impl Game {
             ui_mode: UiMode::Normal,
             inventory_selected: 0,
             data,
+            pending_noise: None,
         };
         game.recompute_fov();
         game
@@ -1527,5 +1660,90 @@ mod tests {
         assert_eq!(game.turn, turn0);
         assert_eq!(game.player.item_count("rust_sword"), 1);
         assert_eq!(game.ground_items.len(), ground0);
+    }
+
+    #[test]
+    fn monster_should_enter_alert_and_move_toward_noise() {
+        let mut game = build_test_game(16);
+        game.monsters.clear();
+
+        let mut map = Map::new(20, 20);
+        for y in 2..=4 {
+            map.set_tile_type(Pos::new(2, y), map::TileType::Floor);
+            map.set_tile_type(Pos::new(8, y), map::TileType::Floor);
+        }
+        for x in 2..=8 {
+            map.set_tile_type(Pos::new(x, 4), map::TileType::Floor);
+        }
+        game.map = map;
+        game.player.pos = Pos::new(2, 2);
+        game.monsters.push(Monster {
+            kind_id: "test".to_string(),
+            name: "Test".to_string(),
+            glyph: 't',
+            pos: Pos::new(8, 2),
+            stats: Stats {
+                hp: 8,
+                max_hp: 8,
+                atk: 3,
+                def: 0,
+            },
+            ai_state: MonsterAiState::Patrol,
+        });
+        game.pending_noise = Some(NoiseEvent {
+            pos: game.player.pos,
+            radius: 10,
+        });
+
+        game.monster_turn();
+
+        assert_eq!(game.monsters[0].pos, Pos::new(8, 3));
+        assert!(matches!(
+            game.monsters[0].ai_state,
+            MonsterAiState::Alert {
+                target,
+                turns_left: _
+            } if target == game.player.pos
+        ));
+    }
+
+    #[test]
+    fn low_hp_monster_should_flee_instead_of_attacking() {
+        let mut game = build_test_game(17);
+        game.monsters.clear();
+
+        let mut map = Map::new(20, 20);
+        for y in 4..=8 {
+            for x in 4..=8 {
+                map.set_tile_type(Pos::new(x, y), map::TileType::Floor);
+            }
+        }
+        game.map = map;
+        game.player.pos = Pos::new(6, 6);
+        game.player.stats.hp = 20;
+        game.monsters.push(Monster {
+            kind_id: "test".to_string(),
+            name: "Coward".to_string(),
+            glyph: 'c',
+            pos: Pos::new(6, 7),
+            stats: Stats {
+                hp: 1,
+                max_hp: 9,
+                atk: 6,
+                def: 0,
+            },
+            ai_state: MonsterAiState::Patrol,
+        });
+        let hp0 = game.player.stats.hp;
+        let dist0 = game.monsters[0].pos.manhattan(game.player.pos);
+
+        game.monster_turn();
+
+        assert_eq!(game.player.stats.hp, hp0);
+        assert!(game.monsters[0].pos.manhattan(game.player.pos) > dist0);
+        assert!(matches!(
+            game.monsters[0].ai_state,
+            MonsterAiState::Flee { turns_left: _ }
+        ));
     }
 }
