@@ -35,6 +35,10 @@ pub enum ItemEffectDef {
         crit_chance_bonus: u8,
         #[serde(default)]
         dodge_chance_bonus: u8,
+        #[serde(default)]
+        armor_penetration_bonus: i32,
+        #[serde(default)]
+        damage_reduction_pct_bonus: u8,
     },
 }
 

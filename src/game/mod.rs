@@ -857,11 +857,13 @@ impl Game {
         true
     }
 
-    fn equipment_bonus_totals(&self) -> (i32, i32, u8, u8) {
+    fn equipment_bonus_totals(&self) -> (i32, i32, u8, u8, i32, u8) {
         let mut atk_bonus = 0;
         let mut def_bonus = 0;
         let mut crit_bonus = 0u8;
         let mut dodge_bonus = 0u8;
+        let mut armor_penetration_bonus = 0i32;
+        let mut damage_reduction_pct_bonus = 0u8;
         for item_id in [
             self.player.equipment.weapon.as_deref(),
             self.player.equipment.armor.as_deref(),
@@ -878,6 +880,8 @@ impl Game {
                 def_bonus: def,
                 crit_chance_bonus: crit,
                 dodge_chance_bonus: dodge,
+                armor_penetration_bonus: penetration,
+                damage_reduction_pct_bonus: reduction,
                 ..
             } = def.effect
             {
@@ -885,6 +889,8 @@ impl Game {
                 def_bonus += def;
                 crit_bonus = crit_bonus.saturating_add(crit);
                 dodge_bonus = dodge_bonus.saturating_add(dodge);
+                armor_penetration_bonus += penetration;
+                damage_reduction_pct_bonus = damage_reduction_pct_bonus.saturating_add(reduction);
             }
         }
         (
@@ -892,6 +898,8 @@ impl Game {
             def_bonus,
             crit_bonus.min(100),
             dodge_bonus.min(100),
+            armor_penetration_bonus.max(0),
+            damage_reduction_pct_bonus.min(95),
         )
     }
 
@@ -911,25 +919,35 @@ impl Game {
     }
 
     fn player_effective_atk(&self) -> i32 {
-        let (equip_atk_bonus, _, _, _) = self.equipment_bonus_totals();
+        let (equip_atk_bonus, _, _, _, _, _) = self.equipment_bonus_totals();
         let (buff_atk_bonus, _) = self.active_buff_bonus_totals();
         self.player.stats.atk + equip_atk_bonus + buff_atk_bonus
     }
 
     fn player_effective_def(&self) -> i32 {
-        let (_, equip_def_bonus, _, _) = self.equipment_bonus_totals();
+        let (_, equip_def_bonus, _, _, _, _) = self.equipment_bonus_totals();
         let (_, buff_def_bonus) = self.active_buff_bonus_totals();
         self.player.stats.def + equip_def_bonus + buff_def_bonus
     }
 
     fn player_effective_crit_chance(&self) -> u8 {
-        let (_, _, crit_bonus, _) = self.equipment_bonus_totals();
+        let (_, _, crit_bonus, _, _, _) = self.equipment_bonus_totals();
         crit_bonus
     }
 
     fn player_effective_dodge_chance(&self) -> u8 {
-        let (_, _, _, dodge_bonus) = self.equipment_bonus_totals();
+        let (_, _, _, dodge_bonus, _, _) = self.equipment_bonus_totals();
         dodge_bonus
+    }
+
+    fn player_effective_armor_penetration(&self) -> i32 {
+        let (_, _, _, _, penetration, _) = self.equipment_bonus_totals();
+        penetration
+    }
+
+    fn player_effective_damage_reduction_pct(&self) -> u8 {
+        let (_, _, _, _, _, reduction) = self.equipment_bonus_totals();
+        reduction
     }
 
     fn roll_chance(&mut self, chance_percent: u8) -> bool {
@@ -1011,9 +1029,11 @@ impl Game {
         {
             let monster_name = self.monsters[index].name.clone();
             let crit = self.roll_chance(self.player_effective_crit_chance());
+            let effective_monster_def =
+                (self.monsters[index].stats.def - self.player_effective_armor_penetration()).max(0);
             let mut damage = roll_damage(
                 self.player_effective_atk(),
-                self.monsters[index].stats.def,
+                effective_monster_def,
                 &mut self.rng,
             );
             if crit {
@@ -1193,10 +1213,12 @@ impl Game {
                     self.player_effective_def(),
                     &mut self.rng,
                 );
-                self.player.stats.hp -= damage;
+                let reduction_pct = self.player_effective_damage_reduction_pct() as i32;
+                let reduced_damage = (damage * (100 - reduction_pct) / 100).max(1);
+                self.player.stats.hp -= reduced_damage;
                 self.push_log(format!(
                     "{}({}) 命中你，造成{}伤害",
-                    self.monsters[idx].name, self.monsters[idx].kind_id, damage
+                    self.monsters[idx].name, self.monsters[idx].kind_id, reduced_damage
                 ));
                 if self.player.stats.hp <= 0 {
                     self.push_log("你倒下了，投递失败".to_string());
@@ -1395,6 +1417,8 @@ impl Game {
             def: self.player_effective_def(),
             crit_chance: self.player_effective_crit_chance(),
             dodge_chance: self.player_effective_dodge_chance(),
+            armor_penetration: self.player_effective_armor_penetration(),
+            damage_reduction_pct: self.player_effective_damage_reduction_pct(),
             potions: self.player.item_count("healing_potion"),
             has_package: self.player.has_item("package"),
             required_quest_items_collected: self.collected_required_quest_item_count(),
@@ -2107,5 +2131,88 @@ mod tests {
         game.monster_turn();
 
         assert_eq!(game.player.stats.hp, hp0);
+    }
+
+    #[test]
+    fn armor_penetration_equipment_should_increase_damage_against_high_def() {
+        let mut baseline = build_test_game(25);
+        let mut pen_game = build_test_game(25);
+        baseline.monsters.clear();
+        pen_game.monsters.clear();
+
+        let mut map = Map::new(20, 20);
+        for y in 4..=8 {
+            for x in 4..=8 {
+                map.set_tile_type(Pos::new(x, y), map::TileType::Floor);
+            }
+        }
+        baseline.map = map.clone();
+        pen_game.map = map;
+        baseline.player.pos = Pos::new(5, 5);
+        pen_game.player.pos = Pos::new(5, 5);
+
+        let monster = Monster {
+            kind_id: "tank".to_string(),
+            name: "Tank".to_string(),
+            glyph: 't',
+            pos: Pos::new(6, 5),
+            stats: Stats {
+                hp: 50,
+                max_hp: 50,
+                atk: 1,
+                def: 9,
+            },
+            ai_state: MonsterAiState::Patrol,
+        };
+        baseline.monsters.push(monster.clone());
+        pen_game.monsters.push(monster);
+
+        let added = pen_game.add_item_to_inventory("armor_breaker", 1);
+        assert_eq!(added, 1, "armor_breaker should exist in assets");
+        assert!(pen_game.try_equip_item("armor_breaker"));
+
+        let _ = baseline.try_move_player(1, 0);
+        let _ = pen_game.try_move_player(1, 0);
+
+        let base_damage = 50 - baseline.monsters[0].stats.hp;
+        let pen_damage = 50 - pen_game.monsters[0].stats.hp;
+        assert!(pen_damage > base_damage);
+    }
+
+    #[test]
+    fn damage_reduction_equipment_should_reduce_monster_damage() {
+        let mut game = build_test_game(26);
+        game.monsters.clear();
+
+        let mut map = Map::new(20, 20);
+        for y in 4..=8 {
+            for x in 4..=8 {
+                map.set_tile_type(Pos::new(x, y), map::TileType::Floor);
+            }
+        }
+        game.map = map;
+        game.player.pos = Pos::new(6, 6);
+        game.player.stats.hp = 20;
+        game.monsters.push(Monster {
+            kind_id: "brute".to_string(),
+            name: "Brute".to_string(),
+            glyph: 'b',
+            pos: Pos::new(6, 7),
+            stats: Stats {
+                hp: 10,
+                max_hp: 10,
+                atk: 8,
+                def: 0,
+            },
+            ai_state: MonsterAiState::Patrol,
+        });
+
+        let added = game.add_item_to_inventory("tower_plate", 1);
+        assert_eq!(added, 1, "tower_plate should exist in assets");
+        assert!(game.try_equip_item("tower_plate"));
+
+        game.monster_turn();
+
+        assert!(game.player.stats.hp >= 19);
     }
 }

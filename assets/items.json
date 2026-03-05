@@ -69,6 +69,40 @@
     }
   },
   {
+    "id": "armor_breaker",
+    "name": "破甲锥",
+    "glyph": "\\",
+    "stackable": false,
+    "max_stack": 1,
+    "effect": {
+      "kind": "equipment",
+      "slot": "weapon",
+      "atk_bonus": 0,
+      "def_bonus": 0,
+      "crit_chance_bonus": 0,
+      "dodge_chance_bonus": 0,
+      "armor_penetration_bonus": 6,
+      "damage_reduction_pct_bonus": 0
+    }
+  },
+  {
+    "id": "tower_plate",
+    "name": "塔盾板甲",
+    "glyph": "{",
+    "stackable": false,
+    "max_stack": 1,
+    "effect": {
+      "kind": "equipment",
+      "slot": "armor",
+      "atk_bonus": 0,
+      "def_bonus": 0,
+      "crit_chance_bonus": 0,
+      "dodge_chance_bonus": 0,
+      "armor_penetration_bonus": 0,
+      "damage_reduction_pct_bonus": 90
+    }
+  },
+  {
     "id": "precision_dagger",
     "name": "精准匕首",
     "glyph": "/",
@@ -80,7 +114,9 @@
       "atk_bonus": 0,
       "def_bonus": 0,
       "crit_chance_bonus": 100,
-      "dodge_chance_bonus": 0
+      "dodge_chance_bonus": 0,
+      "armor_penetration_bonus": 0,
+      "damage_reduction_pct_bonus": 0
     }
   },
   {
@@ -95,7 +131,9 @@
       "atk_bonus": 0,
       "def_bonus": 0,
       "crit_chance_bonus": 0,
-      "dodge_chance_bonus": 100
+      "dodge_chance_bonus": 100,
+      "armor_penetration_bonus": 0,
+      "damage_reduction_pct_bonus": 0
     }
   },
   {
@@ -110,7 +148,9 @@
       "atk_bonus": 3,
       "def_bonus": 0,
       "crit_chance_bonus": 10,
-      "dodge_chance_bonus": 0
+      "dodge_chance_bonus": 0,
+      "armor_penetration_bonus": 0,
+      "damage_reduction_pct_bonus": 0
     }
   },
   {
@@ -125,7 +165,9 @@
       "atk_bonus": 0,
       "def_bonus": 2,
       "crit_chance_bonus": 0,
-      "dodge_chance_bonus": 8
+      "dodge_chance_bonus": 8,
+      "armor_penetration_bonus": 0,
+      "damage_reduction_pct_bonus": 0
     }
   },
   {
@@ -140,7 +182,9 @@
       "atk_bonus": 1,
       "def_bonus": 1,
       "crit_chance_bonus": 5,
-      "dodge_chance_bonus": 5
+      "dodge_chance_bonus": 5,
+      "armor_penetration_bonus": 1,
+      "damage_reduction_pct_bonus": 5
     }
   }
 ]
