@@ -407,11 +407,49 @@ impl Game {
             pos: package_pos,
         });
 
+        let mut required_quest_defs = self
+            .data
+            .item_defs
+            .values()
+            .filter(|def| {
+                matches!(
+                    def.effect,
+                    ItemEffectDef::QuestItem {
+                        required_for_delivery: true
+                    }
+                )
+            })
+            .collect::<Vec<_>>();
+        required_quest_defs.sort_by(|a, b| a.id.cmp(&b.id));
+
+        for def in required_quest_defs {
+            let Some(pos) = item_spawns
+                .iter()
+                .copied()
+                .find(|pos| !occupied.contains(pos) && *pos != package_pos)
+            else {
+                break;
+            };
+            occupied.insert(pos);
+            self.ground_items.push(GroundItem {
+                item_id: def.id.clone(),
+                pos,
+            });
+        }
+
         let mut spawn_candidates = self
             .data
             .item_defs
             .values()
-            .filter(|def| !matches!(def.effect, ItemEffectDef::QuestPackage))
+            .filter(|def| {
+                !matches!(
+                    def.effect,
+                    ItemEffectDef::QuestPackage
+                        | ItemEffectDef::QuestItem {
+                            required_for_delivery: true
+                        }
+                )
+            })
             .collect::<Vec<_>>();
         if spawn_candidates.is_empty() {
             return;
@@ -594,10 +632,13 @@ impl Game {
             return false;
         };
         let def_name = def.name.clone();
-        let is_quest = matches!(def.effect, ItemEffectDef::QuestPackage);
+        let is_quest = matches!(
+            def.effect,
+            ItemEffectDef::QuestPackage | ItemEffectDef::QuestItem { .. }
+        );
 
         if is_quest {
-            self.push_log("任务包裹不可丢弃".to_string());
+            self.push_log("任务道具不可丢弃".to_string());
             return false;
         }
         if self.is_item_equipped(&item_id) {
@@ -706,6 +747,34 @@ impl Game {
             self.player.inventory.swap_remove(index);
         }
         true
+    }
+
+    fn required_quest_item_ids(&self) -> Vec<String> {
+        let mut ids = self
+            .data
+            .item_defs
+            .values()
+            .filter_map(|def| match def.effect {
+                ItemEffectDef::QuestItem {
+                    required_for_delivery: true,
+                } => Some(def.id.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        ids.sort();
+        ids
+    }
+
+    fn collected_required_quest_item_count(&self) -> usize {
+        self.required_quest_item_ids()
+            .iter()
+            .filter(|id| self.player.has_item(id))
+            .count()
+    }
+
+    fn has_all_required_quest_items(&self) -> bool {
+        let required = self.required_quest_item_ids();
+        required.iter().all(|id| self.player.has_item(id))
     }
 
     fn equipped_slot_ref(&self, slot: EquipmentSlot) -> &Option<String> {
@@ -901,6 +970,12 @@ impl Game {
                 self.push_log("任务包裹不可使用".to_string());
                 false
             }
+            ItemEffectDef::QuestItem {
+                required_for_delivery: _,
+            } => {
+                self.push_log("任务道具不可使用".to_string());
+                false
+            }
             ItemEffectDef::Equipment {
                 slot: _,
                 atk_bonus: _,
@@ -983,6 +1058,15 @@ impl Game {
                 match def_effect {
                     ItemEffectDef::QuestPackage => {
                         self.push_log("你已拾取包裹，前往出口 E".to_string());
+                    }
+                    ItemEffectDef::QuestItem {
+                        required_for_delivery,
+                    } => {
+                        if required_for_delivery {
+                            self.push_log(format!("你已拾取{}，交付前请妥善保管", def_name));
+                        } else {
+                            self.push_log(format!("你已拾取任务道具 {}", def_name));
+                        }
                     }
                     ItemEffectDef::Consumable { .. } => {
                         self.push_log(format!(
@@ -1180,7 +1264,10 @@ impl Game {
     }
 
     fn check_victory(&mut self) {
-        if self.player.has_item("package") && self.player.pos == self.exit_pos {
+        if self.player.has_item("package")
+            && self.has_all_required_quest_items()
+            && self.player.pos == self.exit_pos
+        {
             self.won = true;
             self.push_log(format!("第{}回合：包裹已送达，任务完成", self.turn));
         }
@@ -1279,6 +1366,8 @@ impl Game {
             def: self.player_effective_def(),
             potions: self.player.item_count("healing_potion"),
             has_package: self.player.has_item("package"),
+            required_quest_items_collected: self.collected_required_quest_item_count(),
+            required_quest_items_total: self.required_quest_item_ids().len(),
             won: self.won,
             alive: self.player.stats.is_alive(),
             logs: self.log.iter().cloned().collect(),
@@ -1324,7 +1413,10 @@ impl Game {
                                         def_bonus: _
                                     }
                             );
-                            let can_drop = !matches!(def.effect, ItemEffectDef::QuestPackage);
+                            let can_drop = !matches!(
+                                def.effect,
+                                ItemEffectDef::QuestPackage | ItemEffectDef::QuestItem { .. }
+                            );
                             (def.name.clone(), can_use, can_drop)
                         })
                         .unwrap_or_else(|| (stack.item_id.clone(), false, false));
@@ -1856,5 +1948,55 @@ mod tests {
         game.apply_action(Action::Wait);
 
         assert_eq!(game.player_effective_def(), def0);
+    }
+
+    #[test]
+    fn required_quest_item_cannot_be_used_or_dropped() {
+        let mut game = build_test_game(20);
+        game.monsters.clear();
+        game.ui_mode = UiMode::Inventory;
+        let _ = game.add_item_to_inventory("delivery_note", 1);
+        let index = game
+            .inventory_entries()
+            .iter()
+            .position(|entry| entry.item_id == "delivery_note")
+            .expect("delivery_note index");
+        game.inventory_selected = index;
+        let turn0 = game.turn;
+
+        game.apply_action(Action::InventoryUse);
+        game.apply_action(Action::InventoryDrop);
+
+        assert_eq!(game.turn, turn0);
+        assert_eq!(game.player.item_count("delivery_note"), 1);
+    }
+
+    #[test]
+    fn victory_should_require_required_quest_items() {
+        let mut game = build_test_game(21);
+        game.monsters.clear();
+        game.player.pos = game.exit_pos;
+        let _ = game.add_item_to_inventory("package", 1);
+
+        game.check_victory();
+        assert!(
+            !game.won,
+            "missing required quest item should block victory"
+        );
+
+        let _ = game.add_item_to_inventory("delivery_note", 1);
+        game.check_victory();
+        assert!(game.won, "having package + required quest item should win");
+    }
+
+    #[test]
+    fn map_should_spawn_required_quest_item() {
+        let game = build_test_game(22);
+        assert!(
+            game.ground_items
+                .iter()
+                .any(|item| item.item_id == "delivery_note"),
+            "required quest item should be spawned on map"
+        );
     }
 }

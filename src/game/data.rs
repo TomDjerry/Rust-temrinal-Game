@@ -24,6 +24,9 @@ pub enum ItemEffectDef {
         duration_turns: u8,
     },
     QuestPackage,
+    QuestItem {
+        required_for_delivery: bool,
+    },
     Equipment {
         slot: EquipmentSlot,
         atk_bonus: i32,

@@ -40,6 +40,8 @@ pub struct UiSnapshot {
     pub def: i32,
     pub potions: u32,
     pub has_package: bool,
+    pub required_quest_items_collected: usize,
+    pub required_quest_items_total: usize,
     pub won: bool,
     pub alive: bool,
     pub logs: Vec<String>,
@@ -145,7 +147,7 @@ fn render_sidebar(frame: &mut Frame<'_>, area: Rect, snapshot: &UiSnapshot) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(8),
-            Constraint::Length(5),
+            Constraint::Length(6),
             Constraint::Min(6),
         ])
         .split(area);
@@ -183,10 +185,14 @@ fn render_sidebar(frame: &mut Frame<'_>, area: Rect, snapshot: &UiSnapshot) {
         } else {
             "1) 寻找包裹 P"
         }),
+        Line::from(format!(
+            "2) 必需任务物: {}/{}",
+            snapshot.required_quest_items_collected, snapshot.required_quest_items_total
+        )),
         Line::from(if snapshot.won {
-            "2) 已送达"
+            "3) 已送达"
         } else {
-            "2) 尚未送达"
+            "3) 尚未送达"
         }),
     ];
 
@@ -286,8 +292,8 @@ fn render_help_popup(frame: &mut Frame<'_>) {
         Line::from("Esc: 关闭弹窗 / 退出"),
         Line::from("q: 退出游戏"),
         Line::from(""),
-        Line::from("地图图例: P=包裹, !=治疗药水"),
-        Line::from("走到 P 上会自动拾取；药水可按 g 拾取"),
+        Line::from("地图图例: P=包裹, D/B=任务道具, !=治疗药水"),
+        Line::from("走到 P 上会自动拾取；其余道具可按 g 拾取"),
         Line::from(""),
         Line::from("按 ? 或 Esc 关闭"),
     ];
@@ -337,7 +343,7 @@ fn style_for_cell(cell: MapCell) -> Style {
                 Style::default().fg(Color::Gray)
             } else if cell.ch == '.' {
                 Style::default().fg(Color::White)
-            } else if cell.ch == '!' || cell.ch == 'P' {
+            } else if cell.ch == '!' || cell.ch == 'P' || cell.ch == 'D' || cell.ch == 'B' {
                 Style::default().fg(Color::Green)
             } else if cell.ch.is_ascii_lowercase() {
                 Style::default().fg(Color::Red)

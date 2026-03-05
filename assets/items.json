@@ -10,6 +10,28 @@
     }
   },
   {
+    "id": "delivery_note",
+    "name": "签收单",
+    "glyph": "D",
+    "stackable": false,
+    "max_stack": 1,
+    "effect": {
+      "kind": "quest_item",
+      "required_for_delivery": true
+    }
+  },
+  {
+    "id": "courier_badge",
+    "name": "通行徽章",
+    "glyph": "B",
+    "stackable": false,
+    "max_stack": 1,
+    "effect": {
+      "kind": "quest_item",
+      "required_for_delivery": false
+    }
+  },
+  {
     "id": "healing_potion",
     "name": "治疗药水",
     "glyph": "!",
