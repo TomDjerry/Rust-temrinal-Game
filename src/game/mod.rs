@@ -170,6 +170,13 @@ struct NoiseEvent {
     radius: i32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ActiveBuff {
+    atk_bonus: i32,
+    def_bonus: i32,
+    turns_left: u8,
+}
+
 #[derive(Debug)]
 struct Game {
     seed: u64,
@@ -188,6 +195,7 @@ struct Game {
     inventory_selected: usize,
     data: GameData,
     pending_noise: Option<NoiseEvent>,
+    active_buffs: Vec<ActiveBuff>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -353,6 +361,7 @@ impl Game {
             inventory_selected: 0,
             data,
             pending_noise: None,
+            active_buffs: Vec::new(),
         };
 
         game.spawn_from_layout(package_pos, monster_spawns, item_spawns);
@@ -617,6 +626,7 @@ impl Game {
         self.turn += 1;
         self.monster_turn();
         self.pending_noise = None;
+        self.tick_active_buffs();
         self.cleanup_dead_monsters();
         self.check_victory();
         self.recompute_fov();
@@ -815,14 +825,31 @@ impl Game {
         (atk_bonus, def_bonus)
     }
 
+    fn active_buff_bonus_totals(&self) -> (i32, i32) {
+        let atk_bonus = self.active_buffs.iter().map(|buff| buff.atk_bonus).sum();
+        let def_bonus = self.active_buffs.iter().map(|buff| buff.def_bonus).sum();
+        (atk_bonus, def_bonus)
+    }
+
+    fn tick_active_buffs(&mut self) {
+        for buff in &mut self.active_buffs {
+            if buff.turns_left > 0 {
+                buff.turns_left -= 1;
+            }
+        }
+        self.active_buffs.retain(|buff| buff.turns_left > 0);
+    }
+
     fn player_effective_atk(&self) -> i32 {
-        let (atk_bonus, _) = self.equipment_bonus_totals();
-        self.player.stats.atk + atk_bonus
+        let (equip_atk_bonus, _) = self.equipment_bonus_totals();
+        let (buff_atk_bonus, _) = self.active_buff_bonus_totals();
+        self.player.stats.atk + equip_atk_bonus + buff_atk_bonus
     }
 
     fn player_effective_def(&self) -> i32 {
-        let (_, def_bonus) = self.equipment_bonus_totals();
-        self.player.stats.def + def_bonus
+        let (_, equip_def_bonus) = self.equipment_bonus_totals();
+        let (_, buff_def_bonus) = self.active_buff_bonus_totals();
+        self.player.stats.def + equip_def_bonus + buff_def_bonus
     }
 
     fn try_use_item(&mut self, item_id: &str) -> bool {
@@ -846,6 +873,27 @@ impl Game {
                 }
                 self.player.stats.hp = (self.player.stats.hp + heal).min(self.player.stats.max_hp);
                 self.push_log(format!("你使用了{}，回复{} HP", def_name, heal));
+                self.clamp_inventory_selected();
+                true
+            }
+            ItemEffectDef::BuffConsumable {
+                atk_bonus,
+                def_bonus,
+                duration_turns,
+            } => {
+                if !self.remove_item_from_inventory(item_id, 1) {
+                    self.push_log("背包中没有可用物品".to_string());
+                    return false;
+                }
+                self.active_buffs.push(ActiveBuff {
+                    atk_bonus,
+                    def_bonus,
+                    turns_left: duration_turns,
+                });
+                self.push_log(format!(
+                    "你使用了{}，获得 ATK+{} DEF+{}（{} 回合）",
+                    def_name, atk_bonus, def_bonus, duration_turns
+                ));
                 self.clamp_inventory_selected();
                 true
             }
@@ -937,6 +985,13 @@ impl Game {
                         self.push_log("你已拾取包裹，前往出口 E".to_string());
                     }
                     ItemEffectDef::Consumable { .. } => {
+                        self.push_log(format!(
+                            "拾取 {}，当前数量 {}",
+                            def_name,
+                            self.player.item_count(&item.item_id)
+                        ));
+                    }
+                    ItemEffectDef::BuffConsumable { .. } => {
                         self.push_log(format!(
                             "拾取 {}，当前数量 {}",
                             def_name,
@@ -1186,6 +1241,7 @@ impl Game {
             turn: self.turn,
             won: self.won,
             logs: self.log.iter().cloned().collect(),
+            active_buffs: self.active_buffs.clone(),
         }
     }
 
@@ -1207,6 +1263,7 @@ impl Game {
             inventory_selected: 0,
             data,
             pending_noise: None,
+            active_buffs: save.active_buffs,
         };
         game.recompute_fov();
         game
@@ -1260,6 +1317,7 @@ impl Game {
                             let can_use = matches!(
                                 def.effect,
                                 ItemEffectDef::Consumable { .. }
+                                    | ItemEffectDef::BuffConsumable { .. }
                                     | ItemEffectDef::Equipment {
                                         slot: _,
                                         atk_bonus: _,
@@ -1359,6 +1417,8 @@ struct SaveState {
     turn: u32,
     won: bool,
     logs: Vec<String>,
+    #[serde(default)]
+    active_buffs: Vec<ActiveBuff>,
 }
 
 fn strip_bom(content: &str) -> &str {
@@ -1745,5 +1805,56 @@ mod tests {
             game.monsters[0].ai_state,
             MonsterAiState::Flee { turns_left: _ }
         ));
+    }
+
+    #[test]
+    fn attack_buff_consumable_should_apply_and_expire() {
+        let mut game = build_test_game(18);
+        game.monsters.clear();
+        game.ui_mode = UiMode::Inventory;
+        let added = game.add_item_to_inventory("battle_tonic", 1);
+        assert_eq!(added, 1, "battle_tonic should exist in assets");
+        let index = game
+            .inventory_entries()
+            .iter()
+            .position(|entry| entry.item_id == "battle_tonic")
+            .expect("battle_tonic index");
+        game.inventory_selected = index;
+
+        let atk0 = game.player_effective_atk();
+        game.apply_action(Action::InventoryUse);
+        assert_eq!(game.player_effective_atk(), atk0 + 2);
+        game.ui_mode = UiMode::Normal;
+
+        game.apply_action(Action::Wait);
+        game.apply_action(Action::Wait);
+        game.apply_action(Action::Wait);
+
+        assert_eq!(game.player_effective_atk(), atk0);
+    }
+
+    #[test]
+    fn defense_buff_consumable_should_apply_and_expire() {
+        let mut game = build_test_game(19);
+        game.monsters.clear();
+        game.ui_mode = UiMode::Inventory;
+        let added = game.add_item_to_inventory("iron_skin_tonic", 1);
+        assert_eq!(added, 1, "iron_skin_tonic should exist in assets");
+        let index = game
+            .inventory_entries()
+            .iter()
+            .position(|entry| entry.item_id == "iron_skin_tonic")
+            .expect("iron_skin_tonic index");
+        game.inventory_selected = index;
+
+        let def0 = game.player_effective_def();
+        game.apply_action(Action::InventoryUse);
+        assert_eq!(game.player_effective_def(), def0 + 2);
+        game.ui_mode = UiMode::Normal;
+
+        game.apply_action(Action::Wait);
+        game.apply_action(Action::Wait);
+
+        assert_eq!(game.player_effective_def(), def0);
     }
 }

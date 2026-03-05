@@ -21,6 +21,32 @@
     }
   },
   {
+    "id": "battle_tonic",
+    "name": "战斗强心剂",
+    "glyph": "+",
+    "stackable": true,
+    "max_stack": 10,
+    "effect": {
+      "kind": "buff_consumable",
+      "atk_bonus": 2,
+      "def_bonus": 0,
+      "duration_turns": 3
+    }
+  },
+  {
+    "id": "iron_skin_tonic",
+    "name": "铁肤药剂",
+    "glyph": "&",
+    "stackable": true,
+    "max_stack": 10,
+    "effect": {
+      "kind": "buff_consumable",
+      "atk_bonus": 0,
+      "def_bonus": 2,
+      "duration_turns": 2
+    }
+  },
+  {
     "id": "rust_sword",
     "name": "生锈短剑",
     "glyph": ")",

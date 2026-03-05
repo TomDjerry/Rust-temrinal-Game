@@ -18,6 +18,11 @@ pub enum ItemEffectDef {
     Consumable {
         heal: i32,
     },
+    BuffConsumable {
+        atk_bonus: i32,
+        def_bonus: i32,
+        duration_turns: u8,
+    },
     QuestPackage,
     Equipment {
         slot: EquipmentSlot,
