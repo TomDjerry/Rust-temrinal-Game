@@ -1,0 +1,26 @@
+﻿[
+  {
+    "id": "slime",
+    "name": "史莱姆",
+    "glyph": "s",
+    "hp": 12,
+    "atk": 4,
+    "def": 1
+  },
+  {
+    "id": "goblin",
+    "name": "哥布林",
+    "glyph": "g",
+    "hp": 16,
+    "atk": 6,
+    "def": 2
+  },
+  {
+    "id": "hound",
+    "name": "地牢猎犬",
+    "glyph": "h",
+    "hp": 10,
+    "atk": 7,
+    "def": 1
+  }
+]

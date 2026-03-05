@@ -1,0 +1,62 @@
+﻿[
+  {
+    "id": "package",
+    "name": "委托包裹",
+    "glyph": "P",
+    "stackable": false,
+    "max_stack": 1,
+    "effect": {
+      "kind": "quest_package"
+    }
+  },
+  {
+    "id": "healing_potion",
+    "name": "治疗药水",
+    "glyph": "!",
+    "stackable": true,
+    "max_stack": 20,
+    "effect": {
+      "kind": "consumable",
+      "heal": 8
+    }
+  },
+  {
+    "id": "rust_sword",
+    "name": "生锈短剑",
+    "glyph": ")",
+    "stackable": false,
+    "max_stack": 1,
+    "effect": {
+      "kind": "equipment",
+      "slot": "weapon",
+      "atk_bonus": 3,
+      "def_bonus": 0
+    }
+  },
+  {
+    "id": "leather_armor",
+    "name": "皮甲",
+    "glyph": "[",
+    "stackable": false,
+    "max_stack": 1,
+    "effect": {
+      "kind": "equipment",
+      "slot": "armor",
+      "atk_bonus": 0,
+      "def_bonus": 2
+    }
+  },
+  {
+    "id": "courier_charm",
+    "name": "快递员护符",
+    "glyph": "\"",
+    "stackable": false,
+    "max_stack": 1,
+    "effect": {
+      "kind": "equipment",
+      "slot": "accessory",
+      "atk_bonus": 1,
+      "def_bonus": 1
+    }
+  }
+]
