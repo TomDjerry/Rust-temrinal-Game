@@ -810,12 +810,7 @@ impl Game {
         };
         let def_name = def.name.clone();
 
-        let ItemEffectDef::Equipment {
-            slot,
-            atk_bonus: _,
-            def_bonus: _,
-        } = def.effect
-        else {
+        let ItemEffectDef::Equipment { slot, .. } = def.effect else {
             self.push_log("该物品不可装备".to_string());
             return false;
         };
@@ -847,12 +842,7 @@ impl Game {
         };
         let def_name = def.name.clone();
 
-        let ItemEffectDef::Equipment {
-            slot,
-            atk_bonus: _,
-            def_bonus: _,
-        } = def.effect
-        else {
+        let ItemEffectDef::Equipment { slot, .. } = def.effect else {
             self.push_log("该物品不是装备".to_string());
             return false;
         };
@@ -867,9 +857,11 @@ impl Game {
         true
     }
 
-    fn equipment_bonus_totals(&self) -> (i32, i32) {
+    fn equipment_bonus_totals(&self) -> (i32, i32, u8, u8) {
         let mut atk_bonus = 0;
         let mut def_bonus = 0;
+        let mut crit_bonus = 0u8;
+        let mut dodge_bonus = 0u8;
         for item_id in [
             self.player.equipment.weapon.as_deref(),
             self.player.equipment.armor.as_deref(),
@@ -882,16 +874,25 @@ impl Game {
                 continue;
             };
             if let ItemEffectDef::Equipment {
-                slot: _,
                 atk_bonus: atk,
                 def_bonus: def,
+                crit_chance_bonus: crit,
+                dodge_chance_bonus: dodge,
+                ..
             } = def.effect
             {
                 atk_bonus += atk;
                 def_bonus += def;
+                crit_bonus = crit_bonus.saturating_add(crit);
+                dodge_bonus = dodge_bonus.saturating_add(dodge);
             }
         }
-        (atk_bonus, def_bonus)
+        (
+            atk_bonus,
+            def_bonus,
+            crit_bonus.min(100),
+            dodge_bonus.min(100),
+        )
     }
 
     fn active_buff_bonus_totals(&self) -> (i32, i32) {
@@ -910,15 +911,35 @@ impl Game {
     }
 
     fn player_effective_atk(&self) -> i32 {
-        let (equip_atk_bonus, _) = self.equipment_bonus_totals();
+        let (equip_atk_bonus, _, _, _) = self.equipment_bonus_totals();
         let (buff_atk_bonus, _) = self.active_buff_bonus_totals();
         self.player.stats.atk + equip_atk_bonus + buff_atk_bonus
     }
 
     fn player_effective_def(&self) -> i32 {
-        let (_, equip_def_bonus) = self.equipment_bonus_totals();
+        let (_, equip_def_bonus, _, _) = self.equipment_bonus_totals();
         let (_, buff_def_bonus) = self.active_buff_bonus_totals();
         self.player.stats.def + equip_def_bonus + buff_def_bonus
+    }
+
+    fn player_effective_crit_chance(&self) -> u8 {
+        let (_, _, crit_bonus, _) = self.equipment_bonus_totals();
+        crit_bonus
+    }
+
+    fn player_effective_dodge_chance(&self) -> u8 {
+        let (_, _, _, dodge_bonus) = self.equipment_bonus_totals();
+        dodge_bonus
+    }
+
+    fn roll_chance(&mut self, chance_percent: u8) -> bool {
+        if chance_percent == 0 {
+            return false;
+        }
+        if chance_percent >= 100 {
+            return true;
+        }
+        self.rng.random_range(0..100) < chance_percent
     }
 
     fn try_use_item(&mut self, item_id: &str) -> bool {
@@ -976,11 +997,7 @@ impl Game {
                 self.push_log("任务道具不可使用".to_string());
                 false
             }
-            ItemEffectDef::Equipment {
-                slot: _,
-                atk_bonus: _,
-                def_bonus: _,
-            } => self.try_equip_item(item_id),
+            ItemEffectDef::Equipment { .. } => self.try_equip_item(item_id),
         }
     }
 
@@ -993,13 +1010,21 @@ impl Game {
             .position(|m| m.pos == target && m.stats.is_alive())
         {
             let monster_name = self.monsters[index].name.clone();
-            let damage = roll_damage(
+            let crit = self.roll_chance(self.player_effective_crit_chance());
+            let mut damage = roll_damage(
                 self.player_effective_atk(),
                 self.monsters[index].stats.def,
                 &mut self.rng,
             );
+            if crit {
+                damage *= 2;
+            }
             self.monsters[index].stats.hp -= damage;
-            self.push_log(format!("你攻击了{}，造成{}伤害", monster_name, damage));
+            if crit {
+                self.push_log(format!("你暴击了{}，造成{}伤害", monster_name, damage));
+            } else {
+                self.push_log(format!("你攻击了{}，造成{}伤害", monster_name, damage));
+            }
             if self.monsters[index].stats.hp <= 0 {
                 self.push_log(format!("{} 被击倒", monster_name));
             }
@@ -1082,11 +1107,7 @@ impl Game {
                             self.player.item_count(&item.item_id)
                         ));
                     }
-                    ItemEffectDef::Equipment {
-                        slot: _,
-                        atk_bonus: _,
-                        def_bonus: _,
-                    } => {
+                    ItemEffectDef::Equipment { .. } => {
                         self.push_log(format!("拾取装备 {}", def_name));
                     }
                 }
@@ -1159,6 +1180,14 @@ impl Game {
             if monster_pos.is_adjacent4(self.player.pos)
                 && !matches!(current_state, MonsterAiState::Flee { turns_left: _ })
             {
+                if self.roll_chance(self.player_effective_dodge_chance()) {
+                    self.push_log(format!(
+                        "你闪避了{}({})的攻击",
+                        self.monsters[idx].name, self.monsters[idx].kind_id
+                    ));
+                    occupied.insert(self.monsters[idx].pos);
+                    continue;
+                }
                 let damage = roll_damage(
                     self.monsters[idx].stats.atk,
                     self.player_effective_def(),
@@ -1364,6 +1393,8 @@ impl Game {
             max_hp: self.player.stats.max_hp,
             atk: self.player_effective_atk(),
             def: self.player_effective_def(),
+            crit_chance: self.player_effective_crit_chance(),
+            dodge_chance: self.player_effective_dodge_chance(),
             potions: self.player.item_count("healing_potion"),
             has_package: self.player.has_item("package"),
             required_quest_items_collected: self.collected_required_quest_item_count(),
@@ -1407,11 +1438,7 @@ impl Game {
                                 def.effect,
                                 ItemEffectDef::Consumable { .. }
                                     | ItemEffectDef::BuffConsumable { .. }
-                                    | ItemEffectDef::Equipment {
-                                        slot: _,
-                                        atk_bonus: _,
-                                        def_bonus: _
-                                    }
+                                    | ItemEffectDef::Equipment { .. }
                             );
                             let can_drop = !matches!(
                                 def.effect,
@@ -1998,5 +2025,87 @@ mod tests {
                 .any(|item| item.item_id == "delivery_note"),
             "required quest item should be spawned on map"
         );
+    }
+
+    #[test]
+    fn guaranteed_crit_equipment_should_double_attack_damage() {
+        let mut baseline = build_test_game(23);
+        let mut crit_game = build_test_game(23);
+        baseline.monsters.clear();
+        crit_game.monsters.clear();
+
+        let mut map = Map::new(20, 20);
+        for y in 4..=8 {
+            for x in 4..=8 {
+                map.set_tile_type(Pos::new(x, y), map::TileType::Floor);
+            }
+        }
+        baseline.map = map.clone();
+        crit_game.map = map;
+        baseline.player.pos = Pos::new(5, 5);
+        crit_game.player.pos = Pos::new(5, 5);
+
+        let monster = Monster {
+            kind_id: "test".to_string(),
+            name: "Dummy".to_string(),
+            glyph: 'd',
+            pos: Pos::new(6, 5),
+            stats: Stats {
+                hp: 50,
+                max_hp: 50,
+                atk: 1,
+                def: 0,
+            },
+            ai_state: MonsterAiState::Patrol,
+        };
+        baseline.monsters.push(monster.clone());
+        crit_game.monsters.push(monster);
+
+        let added = crit_game.add_item_to_inventory("precision_dagger", 1);
+        assert_eq!(added, 1, "precision_dagger should exist in assets");
+        assert!(crit_game.try_equip_item("precision_dagger"));
+
+        let _ = baseline.try_move_player(1, 0);
+        let _ = crit_game.try_move_player(1, 0);
+
+        let base_damage = 50 - baseline.monsters[0].stats.hp;
+        let crit_damage = 50 - crit_game.monsters[0].stats.hp;
+        assert_eq!(crit_damage, base_damage * 2);
+    }
+
+    #[test]
+    fn guaranteed_dodge_equipment_should_prevent_monster_hit() {
+        let mut game = build_test_game(24);
+        game.monsters.clear();
+
+        let mut map = Map::new(20, 20);
+        for y in 4..=8 {
+            for x in 4..=8 {
+                map.set_tile_type(Pos::new(x, y), map::TileType::Floor);
+            }
+        }
+        game.map = map;
+        game.player.pos = Pos::new(6, 6);
+        game.monsters.push(Monster {
+            kind_id: "test".to_string(),
+            name: "Striker".to_string(),
+            glyph: 's',
+            pos: Pos::new(6, 7),
+            stats: Stats {
+                hp: 12,
+                max_hp: 12,
+                atk: 6,
+                def: 0,
+            },
+            ai_state: MonsterAiState::Patrol,
+        });
+        let added = game.add_item_to_inventory("feather_cloak", 1);
+        assert_eq!(added, 1, "feather_cloak should exist in assets");
+        assert!(game.try_equip_item("feather_cloak"));
+        let hp0 = game.player.stats.hp;
+
+        game.monster_turn();
+
+        assert_eq!(game.player.stats.hp, hp0);
     }
 }

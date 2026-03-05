@@ -38,6 +38,8 @@ pub struct UiSnapshot {
     pub max_hp: i32,
     pub atk: i32,
     pub def: i32,
+    pub crit_chance: u8,
+    pub dodge_chance: u8,
     pub potions: u32,
     pub has_package: bool,
     pub required_quest_items_collected: usize,
@@ -146,7 +148,7 @@ fn render_sidebar(frame: &mut Frame<'_>, area: Rect, snapshot: &UiSnapshot) {
     let parts = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(8),
+            Constraint::Length(9),
             Constraint::Length(6),
             Constraint::Min(6),
         ])
@@ -156,6 +158,10 @@ fn render_sidebar(frame: &mut Frame<'_>, area: Rect, snapshot: &UiSnapshot) {
         Line::from(format!("回合: {}", snapshot.turn)),
         Line::from(format!("HP: {}/{}", snapshot.hp.max(0), snapshot.max_hp)),
         Line::from(format!("ATK: {}  DEF: {}", snapshot.atk, snapshot.def)),
+        Line::from(format!(
+            "CRIT: {}%  EVA: {}%",
+            snapshot.crit_chance, snapshot.dodge_chance
+        )),
         Line::from(format!("药水: {}", snapshot.potions)),
         Line::from(format!(
             "武器: {}",

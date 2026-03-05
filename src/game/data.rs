@@ -31,6 +31,10 @@ pub enum ItemEffectDef {
         slot: EquipmentSlot,
         atk_bonus: i32,
         def_bonus: i32,
+        #[serde(default)]
+        crit_chance_bonus: u8,
+        #[serde(default)]
+        dodge_chance_bonus: u8,
     },
 }
 

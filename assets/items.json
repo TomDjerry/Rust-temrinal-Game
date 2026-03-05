@@ -69,6 +69,36 @@
     }
   },
   {
+    "id": "precision_dagger",
+    "name": "精准匕首",
+    "glyph": "/",
+    "stackable": false,
+    "max_stack": 1,
+    "effect": {
+      "kind": "equipment",
+      "slot": "weapon",
+      "atk_bonus": 0,
+      "def_bonus": 0,
+      "crit_chance_bonus": 100,
+      "dodge_chance_bonus": 0
+    }
+  },
+  {
+    "id": "feather_cloak",
+    "name": "羽披",
+    "glyph": "}",
+    "stackable": false,
+    "max_stack": 1,
+    "effect": {
+      "kind": "equipment",
+      "slot": "armor",
+      "atk_bonus": 0,
+      "def_bonus": 0,
+      "crit_chance_bonus": 0,
+      "dodge_chance_bonus": 100
+    }
+  },
+  {
     "id": "rust_sword",
     "name": "生锈短剑",
     "glyph": ")",
@@ -78,7 +108,9 @@
       "kind": "equipment",
       "slot": "weapon",
       "atk_bonus": 3,
-      "def_bonus": 0
+      "def_bonus": 0,
+      "crit_chance_bonus": 10,
+      "dodge_chance_bonus": 0
     }
   },
   {
@@ -91,7 +123,9 @@
       "kind": "equipment",
       "slot": "armor",
       "atk_bonus": 0,
-      "def_bonus": 2
+      "def_bonus": 2,
+      "crit_chance_bonus": 0,
+      "dodge_chance_bonus": 8
     }
   },
   {
@@ -104,7 +138,9 @@
       "kind": "equipment",
       "slot": "accessory",
       "atk_bonus": 1,
-      "def_bonus": 1
+      "def_bonus": 1,
+      "crit_chance_bonus": 5,
+      "dodge_chance_bonus": 5
     }
   }
 ]
