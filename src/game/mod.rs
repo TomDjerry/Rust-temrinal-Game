@@ -1666,7 +1666,7 @@ impl Game {
                 .inventory_entries()
                 .into_iter()
                 .map(|stack| {
-                    let (name, can_use, can_drop) = self
+                    let (name, can_use, can_drop, attr_desc) = self
                         .data
                         .item_defs
                         .get(&stack.item_id)
@@ -1681,15 +1681,67 @@ impl Game {
                                 def.effect,
                                 ItemEffectDef::QuestPackage | ItemEffectDef::QuestItem { .. }
                             );
-                            (def.name.clone(), can_use, can_drop)
+                            let attr_desc = match def.effect {
+                                ItemEffectDef::Consumable { heal } => format!("回复 {heal} HP"),
+                                ItemEffectDef::BuffConsumable {
+                                    atk_bonus,
+                                    def_bonus,
+                                    duration_turns,
+                                } => format!(
+                                    "ATK+{} DEF+{} 持续{}回合",
+                                    atk_bonus, def_bonus, duration_turns
+                                ),
+                                ItemEffectDef::QuestPackage => "主线任务物".to_string(),
+                                ItemEffectDef::QuestItem {
+                                    required_for_delivery,
+                                } => {
+                                    if required_for_delivery {
+                                        "必需任务物".to_string()
+                                    } else {
+                                        "可选任务物".to_string()
+                                    }
+                                }
+                                ItemEffectDef::Equipment {
+                                    slot: _,
+                                    atk_bonus,
+                                    def_bonus,
+                                    crit_chance_bonus,
+                                    dodge_chance_bonus,
+                                    armor_penetration_bonus,
+                                    damage_reduction_pct_bonus,
+                                } => {
+                                    let mut tags = Vec::new();
+                                    if atk_bonus != 0 {
+                                        tags.push(format!("ATK+{atk_bonus}"));
+                                    }
+                                    if def_bonus != 0 {
+                                        tags.push(format!("DEF+{def_bonus}"));
+                                    }
+                                    if crit_chance_bonus != 0 {
+                                        tags.push(format!("CRIT+{}%", crit_chance_bonus));
+                                    }
+                                    if dodge_chance_bonus != 0 {
+                                        tags.push(format!("EVA+{}%", dodge_chance_bonus));
+                                    }
+                                    if armor_penetration_bonus != 0 {
+                                        tags.push(format!("PEN+{}", armor_penetration_bonus));
+                                    }
+                                    if damage_reduction_pct_bonus != 0 {
+                                        tags.push(format!("RES+{}%", damage_reduction_pct_bonus));
+                                    }
+                                    tags.join(" ")
+                                }
+                            };
+                            (def.name.clone(), can_use, can_drop, attr_desc)
                         })
-                        .unwrap_or_else(|| (stack.item_id.clone(), false, false));
+                        .unwrap_or_else(|| (stack.item_id.clone(), false, false, String::new()));
                     InventoryItemView {
                         name,
                         qty: stack.qty,
                         can_use,
                         can_drop,
                         equipped: self.is_item_equipped(&stack.item_id),
+                        attr_desc,
                     }
                 })
                 .collect(),

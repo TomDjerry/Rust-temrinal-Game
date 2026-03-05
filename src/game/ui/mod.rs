@@ -64,6 +64,7 @@ pub struct InventoryItemView {
     pub can_use: bool,
     pub can_drop: bool,
     pub equipped: bool,
+    pub attr_desc: String,
 }
 
 pub fn init_terminal() -> Result<AppTerminal> {
@@ -270,6 +271,9 @@ fn render_inventory_popup(frame: &mut Frame<'_>, snapshot: &UiSnapshot) {
                 "{sel} {} x{}{} {}",
                 item.name, item.qty, equipped_tag, ops
             )));
+            if !item.attr_desc.is_empty() {
+                lines.push(Line::from(format!("    属性: {}", item.attr_desc)));
+            }
         }
     }
 
@@ -303,6 +307,14 @@ fn render_help_popup(frame: &mut Frame<'_>) {
         Line::from("F2: 快速存档  F3: 读取存档"),
         Line::from("Esc: 关闭弹窗 / 退出"),
         Line::from("q: 退出游戏"),
+        Line::from(""),
+        Line::from("属性说明"),
+        Line::from("ATK: 攻击力，影响基础伤害"),
+        Line::from("DEF: 防御力，降低受到的基础伤害"),
+        Line::from("CRIT: 暴击率，触发时伤害翻倍"),
+        Line::from("EVA: 闪避率，触发时免疫本次伤害"),
+        Line::from("PEN: 穿透值，按点数降低目标防御"),
+        Line::from("RES: 减伤率，按百分比降低受击伤害（保底1）"),
         Line::from(""),
         Line::from("地图图例: P=包裹, D/B=任务道具, !=治疗药水"),
         Line::from("走到 P 上会自动拾取；其余道具可按 g 拾取"),
