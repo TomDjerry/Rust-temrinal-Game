@@ -177,6 +177,22 @@ struct ActiveBuff {
     turns_left: u8,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+enum ContractObjective {
+    KillMonsters { target: u32 },
+    CollectItem { item_id: String, target: u32 },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SideContract {
+    name: String,
+    objective: ContractObjective,
+    progress: u32,
+    reward_item_id: String,
+    reward_qty: u32,
+    completed: bool,
+}
+
 #[derive(Debug)]
 struct Game {
     seed: u64,
@@ -196,6 +212,7 @@ struct Game {
     data: GameData,
     pending_noise: Option<NoiseEvent>,
     active_buffs: Vec<ActiveBuff>,
+    side_contract: Option<SideContract>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -257,6 +274,9 @@ pub fn run(config: GameConfig) -> Result<()> {
     let mut game = Game::new(effective_config, seed, data)?;
 
     game.push_log(format!("Seed: {seed}"));
+    if let Some(line) = game.side_contract_progress_line() {
+        game.push_log(line);
+    }
     if was_clamped {
         game.push_log(format!(
             "终端较小，地图已调整为 {}x{}",
@@ -362,9 +382,11 @@ impl Game {
             data,
             pending_noise: None,
             active_buffs: Vec::new(),
+            side_contract: None,
         };
 
         game.spawn_from_layout(package_pos, monster_spawns, item_spawns);
+        game.ensure_side_contract(false);
         game.recompute_fov();
         Ok(game)
     }
@@ -469,6 +491,40 @@ impl Game {
                 pos,
             });
         }
+    }
+
+    fn ensure_side_contract(&mut self, announce: bool) {
+        if self.side_contract.is_some() {
+            return;
+        }
+
+        let contract = if self.rng.random_bool(0.5) {
+            SideContract {
+                name: "清剿威胁".to_string(),
+                objective: ContractObjective::KillMonsters { target: 3 },
+                progress: 0,
+                reward_item_id: "battle_tonic".to_string(),
+                reward_qty: 1,
+                completed: false,
+            }
+        } else {
+            SideContract {
+                name: "药剂补给".to_string(),
+                objective: ContractObjective::CollectItem {
+                    item_id: "healing_potion".to_string(),
+                    target: 2,
+                },
+                progress: 0,
+                reward_item_id: "iron_skin_tonic".to_string(),
+                reward_qty: 1,
+                completed: false,
+            }
+        };
+
+        if announce {
+            self.push_log(format!("新增支线合约: {}", contract.name));
+        }
+        self.side_contract = Some(contract);
     }
 
     fn apply_action(&mut self, action: Action) {
@@ -777,6 +833,118 @@ impl Game {
         required.iter().all(|id| self.player.has_item(id))
     }
 
+    fn side_contract_target(contract: &SideContract) -> u32 {
+        match contract.objective {
+            ContractObjective::KillMonsters { target } => target,
+            ContractObjective::CollectItem { target, .. } => target,
+        }
+    }
+
+    fn side_contract_progress_line(&self) -> Option<String> {
+        self.side_contract.as_ref().map(|contract| {
+            let target = Self::side_contract_target(contract);
+            if contract.completed {
+                format!("支线合约 {}: 已完成", contract.name)
+            } else {
+                format!(
+                    "支线合约 {}: {}/{}",
+                    contract.name, contract.progress, target
+                )
+            }
+        })
+    }
+
+    fn on_monster_killed_for_contract(&mut self) {
+        let mut progress_log: Option<String> = None;
+        if let Some(contract) = &mut self.side_contract
+            && !contract.completed
+            && matches!(contract.objective, ContractObjective::KillMonsters { .. })
+        {
+            contract.progress = contract.progress.saturating_add(1);
+            let target = Self::side_contract_target(contract);
+            progress_log = Some(format!(
+                "支线合约 {}: {}/{}",
+                contract.name, contract.progress, target
+            ));
+        }
+        if let Some(line) = progress_log {
+            self.push_log(line);
+        }
+        if self
+            .side_contract
+            .as_ref()
+            .is_some_and(|contract| !contract.completed)
+        {
+            self.try_complete_side_contract();
+        }
+    }
+
+    fn on_item_collected_for_contract(&mut self, item_id: &str, qty: u32) {
+        if qty == 0 {
+            return;
+        }
+        let mut progress_log: Option<String> = None;
+        if let Some(contract) = &mut self.side_contract {
+            if contract.completed {
+                return;
+            }
+            if let ContractObjective::CollectItem {
+                item_id: target_item_id,
+                target: _,
+            } = &contract.objective
+                && target_item_id == item_id
+            {
+                contract.progress = contract.progress.saturating_add(qty);
+                let target = Self::side_contract_target(contract);
+                progress_log = Some(format!(
+                    "支线合约 {}: {}/{}",
+                    contract.name, contract.progress, target
+                ));
+            }
+        }
+        if let Some(line) = progress_log {
+            self.push_log(line);
+            self.try_complete_side_contract();
+        }
+    }
+
+    fn try_complete_side_contract(&mut self) {
+        let mut reward: Option<(String, u32, String)> = None;
+        if let Some(contract) = &mut self.side_contract {
+            if contract.completed {
+                return;
+            }
+            let target = Self::side_contract_target(contract);
+            if contract.progress >= target {
+                contract.progress = target;
+                contract.completed = true;
+                reward = Some((
+                    contract.reward_item_id.clone(),
+                    contract.reward_qty,
+                    contract.name.clone(),
+                ));
+            }
+        }
+
+        let Some((reward_item_id, reward_qty, contract_name)) = reward else {
+            return;
+        };
+        let added = self.add_item_to_inventory(&reward_item_id, reward_qty);
+        if added > 0 {
+            let reward_name = self
+                .data
+                .item_defs
+                .get(&reward_item_id)
+                .map(|item| item.name.clone())
+                .unwrap_or(reward_item_id);
+            self.push_log(format!(
+                "支线合约完成: {contract_name}，获得 {reward_name} x{added}"
+            ));
+        } else {
+            self.push_log(format!("支线合约完成: {contract_name}，但奖励未能放入背包"));
+        }
+    }
+
     fn missing_required_quest_item_names(&self) -> Vec<String> {
         self.required_quest_item_ids()
             .into_iter()
@@ -797,6 +965,9 @@ impl Game {
             self.collected_required_quest_item_count(),
             self.required_quest_item_ids().len()
         ));
+        if let Some(line) = self.side_contract_progress_line() {
+            self.push_log(line);
+        }
     }
 
     fn equipped_slot_ref(&self, slot: EquipmentSlot) -> &Option<String> {
@@ -1069,6 +1240,7 @@ impl Game {
             }
             if self.monsters[index].stats.hp <= 0 {
                 self.push_log(format!("{} 被击倒", monster_name));
+                self.on_monster_killed_for_contract();
             }
             return true;
         }
@@ -1122,6 +1294,7 @@ impl Game {
                     kept.push(item);
                     continue;
                 }
+                self.on_item_collected_for_contract(&item.item_id, added);
                 match def_effect {
                     ItemEffectDef::QuestPackage => {
                         self.push_log("你已拾取包裹，前往出口 E".to_string());
@@ -1417,6 +1590,7 @@ impl Game {
             won: self.won,
             logs: self.log.iter().cloned().collect(),
             active_buffs: self.active_buffs.clone(),
+            side_contract: self.side_contract.clone(),
         }
     }
 
@@ -1439,7 +1613,9 @@ impl Game {
             data,
             pending_noise: None,
             active_buffs: save.active_buffs,
+            side_contract: save.side_contract,
         };
+        game.ensure_side_contract(false);
         game.recompute_fov();
         game
     }
@@ -1599,6 +1775,8 @@ struct SaveState {
     logs: Vec<String>,
     #[serde(default)]
     active_buffs: Vec<ActiveBuff>,
+    #[serde(default)]
+    side_contract: Option<SideContract>,
 }
 
 fn strip_bom(content: &str) -> &str {
@@ -2282,10 +2460,59 @@ mod tests {
         let picked = game.try_pickup();
 
         assert!(picked);
-        let last_log = game.log.back().cloned().unwrap_or_default();
         assert!(
-            last_log.contains("必需任务物进度"),
+            game.log.iter().any(|line| line.contains("必需任务物进度")),
             "should log required quest progress when picking required item"
         );
+    }
+
+    #[test]
+    fn kill_contract_should_complete_and_grant_reward() {
+        let mut game = build_test_game(29);
+        game.monsters.clear();
+        game.side_contract = Some(SideContract {
+            name: "测试击杀".to_string(),
+            objective: ContractObjective::KillMonsters { target: 1 },
+            progress: 0,
+            reward_item_id: "battle_tonic".to_string(),
+            reward_qty: 1,
+            completed: false,
+        });
+
+        game.on_monster_killed_for_contract();
+
+        let contract = game.side_contract.as_ref().expect("contract");
+        assert!(contract.completed);
+        assert_eq!(contract.progress, 1);
+        assert_eq!(game.player.item_count("battle_tonic"), 1);
+    }
+
+    #[test]
+    fn collect_contract_should_progress_on_pickup_and_grant_reward() {
+        let mut game = build_test_game(30);
+        game.monsters.clear();
+        game.side_contract = Some(SideContract {
+            name: "测试收集".to_string(),
+            objective: ContractObjective::CollectItem {
+                item_id: "healing_potion".to_string(),
+                target: 1,
+            },
+            progress: 0,
+            reward_item_id: "iron_skin_tonic".to_string(),
+            reward_qty: 1,
+            completed: false,
+        });
+        game.ground_items.push(GroundItem {
+            item_id: "healing_potion".to_string(),
+            pos: game.player.pos,
+        });
+
+        let picked = game.try_pickup();
+        assert!(picked);
+
+        let contract = game.side_contract.as_ref().expect("contract");
+        assert!(contract.completed);
+        assert_eq!(contract.progress, 1);
+        assert_eq!(game.player.item_count("iron_skin_tonic"), 1);
     }
 }
