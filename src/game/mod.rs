@@ -777,6 +777,28 @@ impl Game {
         required.iter().all(|id| self.player.has_item(id))
     }
 
+    fn missing_required_quest_item_names(&self) -> Vec<String> {
+        self.required_quest_item_ids()
+            .into_iter()
+            .filter(|id| !self.player.has_item(id))
+            .map(|id| {
+                self.data
+                    .item_defs
+                    .get(&id)
+                    .map(|def| def.name.clone())
+                    .unwrap_or(id)
+            })
+            .collect()
+    }
+
+    fn log_required_quest_progress(&mut self) {
+        self.push_log(format!(
+            "必需任务物进度: {}/{}",
+            self.collected_required_quest_item_count(),
+            self.required_quest_item_ids().len()
+        ));
+    }
+
     fn equipped_slot_ref(&self, slot: EquipmentSlot) -> &Option<String> {
         match slot {
             EquipmentSlot::Weapon => &self.player.equipment.weapon,
@@ -1103,12 +1125,14 @@ impl Game {
                 match def_effect {
                     ItemEffectDef::QuestPackage => {
                         self.push_log("你已拾取包裹，前往出口 E".to_string());
+                        self.log_required_quest_progress();
                     }
                     ItemEffectDef::QuestItem {
                         required_for_delivery,
                     } => {
                         if required_for_delivery {
                             self.push_log(format!("你已拾取{}，交付前请妥善保管", def_name));
+                            self.log_required_quest_progress();
                         } else {
                             self.push_log(format!("你已拾取任务道具 {}", def_name));
                         }
@@ -1315,6 +1339,19 @@ impl Game {
     }
 
     fn check_victory(&mut self) {
+        if self.player.pos == self.exit_pos
+            && self.player.has_item("package")
+            && !self.has_all_required_quest_items()
+        {
+            let missing = self.missing_required_quest_item_names().join("、");
+            self.push_log(format!(
+                "缺少必需任务物: {missing}（{}/{}）",
+                self.collected_required_quest_item_count(),
+                self.required_quest_item_ids().len()
+            ));
+            return;
+        }
+
         if self.player.has_item("package")
             && self.has_all_required_quest_items()
             && self.player.pos == self.exit_pos
@@ -2214,5 +2251,41 @@ mod tests {
         game.monster_turn();
 
         assert!(game.player.stats.hp >= 19);
+    }
+
+    #[test]
+    fn reaching_exit_without_required_items_should_log_missing_progress() {
+        let mut game = build_test_game(27);
+        game.monsters.clear();
+        let _ = game.add_item_to_inventory("package", 1);
+        game.player.pos = game.exit_pos;
+
+        game.check_victory();
+
+        assert!(!game.won);
+        let last_log = game.log.back().cloned().unwrap_or_default();
+        assert!(
+            last_log.contains("缺少必需任务物"),
+            "should log missing required quest item progress"
+        );
+    }
+
+    #[test]
+    fn picking_required_item_should_log_quest_progress() {
+        let mut game = build_test_game(28);
+        game.monsters.clear();
+        game.ground_items.push(GroundItem {
+            item_id: "delivery_note".to_string(),
+            pos: game.player.pos,
+        });
+
+        let picked = game.try_pickup();
+
+        assert!(picked);
+        let last_log = game.log.back().cloned().unwrap_or_default();
+        assert!(
+            last_log.contains("必需任务物进度"),
+            "should log required quest progress when picking required item"
+        );
     }
 }
