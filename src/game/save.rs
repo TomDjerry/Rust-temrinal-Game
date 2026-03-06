@@ -51,9 +51,7 @@ impl SaveState {
             visible: HashSet::new(),
             log: VecDeque::from(self.logs),
             turn: self.turn,
-            rng: StdRng::seed_from_u64(
-                self.seed ^ ((self.turn as u64) << 32) ^ 0x9E3779B97F4A7C15,
-            ),
+            rng: StdRng::seed_from_u64(self.seed ^ ((self.turn as u64) << 32) ^ 0x9E3779B97F4A7C15),
             won: self.won,
             quit: false,
             ui_mode: UiMode::Normal,

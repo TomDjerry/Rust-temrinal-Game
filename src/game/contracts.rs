@@ -62,7 +62,10 @@ impl Game {
 
     pub(super) fn required_quest_progress(&self) -> (usize, usize) {
         let required = self.required_quest_item_ids();
-        let collected = required.iter().filter(|id| self.player.has_item(id)).count();
+        let collected = required
+            .iter()
+            .filter(|id| self.player.has_item(id))
+            .count();
         (collected, required.len())
     }
 
