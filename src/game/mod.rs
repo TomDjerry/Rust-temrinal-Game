@@ -17,7 +17,9 @@ use crate::game::combat::roll_damage;
 use crate::game::data::{EquipmentSlot, GameData, ItemEffectDef};
 use crate::game::map::path::bfs_next_step;
 use crate::game::map::{DungeonLayout, Map, Pos, compute_fov, generate_dungeon, line_of_sight};
-use crate::game::ui::{AppTerminal, InventoryItemView, MapCell, MapTone, UiMode, UiSnapshot};
+use crate::game::ui::{
+    AppTerminal, InventoryItemView, MapCell, MapTone, SideContractView, UiMode, UiSnapshot,
+};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -854,6 +856,45 @@ impl Game {
         })
     }
 
+    fn side_contract_view(&self) -> Option<SideContractView> {
+        self.side_contract.as_ref().map(|contract| {
+            let target = Self::side_contract_target(contract);
+            let progress = contract.progress.min(target);
+            SideContractView {
+                name: contract.name.clone(),
+                objective: self.side_contract_objective_text(contract),
+                progress_text: format!("{progress}/{target}"),
+                reward_text: self.side_contract_reward_text(contract),
+                completed: contract.completed,
+            }
+        })
+    }
+
+    fn side_contract_objective_text(&self, contract: &SideContract) -> String {
+        match &contract.objective {
+            ContractObjective::KillMonsters { .. } => "击杀怪物".to_string(),
+            ContractObjective::CollectItem { item_id, .. } => {
+                let item_name = self
+                    .data
+                    .item_defs
+                    .get(item_id)
+                    .map(|item| item.name.as_str())
+                    .unwrap_or(item_id.as_str());
+                format!("收集 {item_name}")
+            }
+        }
+    }
+
+    fn side_contract_reward_text(&self, contract: &SideContract) -> String {
+        let reward_name = self
+            .data
+            .item_defs
+            .get(&contract.reward_item_id)
+            .map(|item| item.name.as_str())
+            .unwrap_or(contract.reward_item_id.as_str());
+        format!("{reward_name} x{}", contract.reward_qty)
+    }
+
     fn on_monster_killed_for_contract(&mut self) {
         let mut progress_log: Option<String> = None;
         if let Some(contract) = &mut self.side_contract
@@ -1662,6 +1703,7 @@ impl Game {
                 .as_ref()
                 .and_then(|id| self.data.item_defs.get(id))
                 .map(|def| def.name.clone()),
+            side_contract: self.side_contract_view(),
             inventory_items: self
                 .inventory_entries()
                 .into_iter()
@@ -2566,5 +2608,34 @@ mod tests {
         assert!(contract.completed);
         assert_eq!(contract.progress, 1);
         assert_eq!(game.player.item_count("iron_skin_tonic"), 1);
+    }
+
+    #[test]
+    fn snapshot_should_include_side_contract_view() {
+        let mut game = build_test_game(31);
+        game.side_contract = Some(SideContract {
+            name: "测试收集".to_string(),
+            objective: ContractObjective::CollectItem {
+                item_id: "healing_potion".to_string(),
+                target: 2,
+            },
+            progress: 1,
+            reward_item_id: "iron_skin_tonic".to_string(),
+            reward_qty: 1,
+            completed: false,
+        });
+
+        let snapshot = game.snapshot();
+
+        assert_eq!(
+            snapshot.side_contract,
+            Some(SideContractView {
+                name: "测试收集".to_string(),
+                objective: "收集 治疗药水".to_string(),
+                progress_text: "1/2".to_string(),
+                reward_text: "铁肤药剂 x1".to_string(),
+                completed: false,
+            })
+        );
     }
 }

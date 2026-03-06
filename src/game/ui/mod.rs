@@ -54,7 +54,17 @@ pub struct UiSnapshot {
     pub equipped_weapon: Option<String>,
     pub equipped_armor: Option<String>,
     pub equipped_accessory: Option<String>,
+    pub side_contract: Option<SideContractView>,
     pub inventory_items: Vec<InventoryItemView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SideContractView {
+    pub name: String,
+    pub objective: String,
+    pub progress_text: String,
+    pub reward_text: String,
+    pub completed: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -153,6 +163,7 @@ fn render_sidebar(frame: &mut Frame<'_>, area: Rect, snapshot: &UiSnapshot) {
         .constraints([
             Constraint::Length(10),
             Constraint::Length(6),
+            Constraint::Length(6),
             Constraint::Min(6),
         ])
         .split(area);
@@ -209,7 +220,12 @@ fn render_sidebar(frame: &mut Frame<'_>, area: Rect, snapshot: &UiSnapshot) {
         }),
     ];
 
-    let max_logs = log_limit(parts[2].height);
+    let contract_lines = build_side_contract_lines(snapshot)
+        .into_iter()
+        .map(Line::from)
+        .collect::<Vec<_>>();
+
+    let max_logs = log_limit(parts[3].height);
     let mut logs = snapshot
         .logs
         .iter()
@@ -238,11 +254,34 @@ fn render_sidebar(frame: &mut Frame<'_>, area: Rect, snapshot: &UiSnapshot) {
     );
 
     frame.render_widget(
+        Paragraph::new(contract_lines)
+            .block(Block::default().title(" 合约 ").borders(Borders::ALL))
+            .wrap(Wrap { trim: true }),
+        parts[2],
+    );
+
+    frame.render_widget(
         Paragraph::new(log_lines)
             .block(Block::default().title(" 日志 ").borders(Borders::ALL))
             .wrap(Wrap { trim: false }),
-        parts[2],
+        parts[3],
     );
+}
+
+fn build_side_contract_lines(snapshot: &UiSnapshot) -> Vec<String> {
+    match &snapshot.side_contract {
+        Some(contract) => vec![
+            format!("合约: {}", contract.name),
+            format!("目标: {}", contract.objective),
+            if contract.completed {
+                "进度: 已完成".to_string()
+            } else {
+                format!("进度: {}", contract.progress_text)
+            },
+            format!("奖励: {}", contract.reward_text),
+        ],
+        None => vec!["暂无支线合约".to_string(), "继续推进主线投递".to_string()],
+    }
 }
 
 fn render_inventory_popup(frame: &mut Frame<'_>, snapshot: &UiSnapshot) {
@@ -412,6 +451,35 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 mod tests {
     use super::*;
 
+    fn build_snapshot() -> UiSnapshot {
+        UiSnapshot {
+            map_rows: Vec::new(),
+            turn: 1,
+            hp: 10,
+            max_hp: 10,
+            atk: 4,
+            def: 2,
+            crit_chance: 5,
+            dodge_chance: 5,
+            armor_penetration: 0,
+            damage_reduction_pct: 0,
+            potions: 1,
+            has_package: false,
+            required_quest_items_collected: 0,
+            required_quest_items_total: 1,
+            won: false,
+            alive: true,
+            logs: Vec::new(),
+            ui_mode: UiMode::Normal,
+            inventory_selected: 0,
+            equipped_weapon: None,
+            equipped_armor: None,
+            equipped_accessory: None,
+            side_contract: None,
+            inventory_items: Vec::new(),
+        }
+    }
+
     #[test]
     fn sidebar_ratio_is_adaptive() {
         assert_eq!(sidebar_percent(130), 32);
@@ -433,5 +501,29 @@ mod tests {
         let (w, h) = max_map_dimensions(90, 30);
         assert_eq!(w, 53);
         assert_eq!(h, 28);
+    }
+
+    #[test]
+    fn side_contract_panel_lines_should_include_details() {
+        let mut snapshot = build_snapshot();
+        snapshot.side_contract = Some(SideContractView {
+            name: "收集补给".to_string(),
+            objective: "收集 治疗药水".to_string(),
+            progress_text: "1/2".to_string(),
+            reward_text: "铁肤药剂 x1".to_string(),
+            completed: false,
+        });
+
+        let lines = build_side_contract_lines(&snapshot);
+
+        assert_eq!(
+            lines,
+            vec![
+                "合约: 收集补给".to_string(),
+                "目标: 收集 治疗药水".to_string(),
+                "进度: 1/2".to_string(),
+                "奖励: 铁肤药剂 x1".to_string(),
+            ]
+        );
     }
 }
