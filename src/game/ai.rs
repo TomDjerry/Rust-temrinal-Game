@@ -177,6 +177,7 @@ impl Game {
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_support::{build_test_game, open_floor_map, test_monster};
     use super::super::*;
 
     #[test]
@@ -195,5 +196,82 @@ mod tests {
             }
         );
         assert_eq!(flee.decay(), MonsterAiState::Patrol);
+    }
+
+    #[test]
+    fn monster_should_enter_alert_and_move_toward_noise() {
+        let mut game = build_test_game(16);
+        game.monsters.clear();
+
+        let mut map = Map::new(20, 20);
+        for y in 2..=4 {
+            map.set_tile_type(Pos::new(2, y), map::TileType::Floor);
+            map.set_tile_type(Pos::new(8, y), map::TileType::Floor);
+        }
+        for x in 2..=8 {
+            map.set_tile_type(Pos::new(x, 4), map::TileType::Floor);
+        }
+        game.map = map;
+        game.player.pos = Pos::new(2, 2);
+        game.monsters.push(test_monster(
+            "test",
+            "Test",
+            't',
+            Pos::new(8, 2),
+            Stats {
+                hp: 8,
+                max_hp: 8,
+                atk: 3,
+                def: 0,
+            },
+        ));
+        game.pending_noise = Some(NoiseEvent {
+            pos: game.player.pos,
+            radius: 10,
+        });
+
+        game.monster_turn();
+
+        assert_eq!(game.monsters[0].pos, Pos::new(8, 3));
+        assert!(matches!(
+            game.monsters[0].ai_state,
+            MonsterAiState::Alert {
+                target,
+                turns_left: _
+            } if target == game.player.pos
+        ));
+    }
+
+    #[test]
+    fn low_hp_monster_should_flee_instead_of_attacking() {
+        let mut game = build_test_game(17);
+        game.monsters.clear();
+
+        game.map = open_floor_map(20, 20, 4..=8, 4..=8);
+        game.player.pos = Pos::new(6, 6);
+        game.player.stats.hp = 20;
+        game.monsters.push(test_monster(
+            "test",
+            "Coward",
+            'c',
+            Pos::new(6, 7),
+            Stats {
+                hp: 1,
+                max_hp: 9,
+                atk: 6,
+                def: 0,
+            },
+        ));
+        let hp0 = game.player.stats.hp;
+        let dist0 = game.monsters[0].pos.manhattan(game.player.pos);
+
+        game.monster_turn();
+
+        assert_eq!(game.player.stats.hp, hp0);
+        assert!(game.monsters[0].pos.manhattan(game.player.pos) > dist0);
+        assert!(matches!(
+            game.monsters[0].ai_state,
+            MonsterAiState::Flee { turns_left: _ }
+        ));
     }
 }

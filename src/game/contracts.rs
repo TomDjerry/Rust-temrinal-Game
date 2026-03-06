@@ -250,17 +250,8 @@ impl Game {
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_support::build_test_game;
     use super::super::*;
-
-    fn build_test_game(seed: u64) -> Game {
-        let data = GameData::load("assets").expect("assets");
-        let config = GameConfig {
-            seed: Some(seed),
-            width: 40,
-            height: 22,
-        };
-        Game::new(config, seed, data).expect("game")
-    }
 
     #[test]
     fn side_contract_target_should_match_objective() {
@@ -300,5 +291,110 @@ mod tests {
 
         let _ = game.add_item_to_inventory("delivery_note", 1);
         assert_eq!(game.required_quest_progress(), (1, 1));
+    }
+
+    #[test]
+    fn victory_should_require_required_quest_items() {
+        let mut game = build_test_game(21);
+        game.monsters.clear();
+        game.player.pos = game.exit_pos;
+        let _ = game.add_item_to_inventory("package", 1);
+
+        game.check_victory();
+        assert!(!game.won);
+
+        let _ = game.add_item_to_inventory("delivery_note", 1);
+        game.check_victory();
+        assert!(game.won);
+    }
+
+    #[test]
+    fn map_should_spawn_required_quest_item() {
+        let game = build_test_game(22);
+
+        assert!(
+            game.ground_items
+                .iter()
+                .any(|item| item.item_id == "delivery_note")
+        );
+    }
+
+    #[test]
+    fn reaching_exit_without_required_items_should_log_missing_progress() {
+        let mut game = build_test_game(27);
+        game.monsters.clear();
+        let _ = game.add_item_to_inventory("package", 1);
+        game.player.pos = game.exit_pos;
+
+        game.check_victory();
+
+        assert!(!game.won);
+        let last_log = game.log.back().cloned().unwrap_or_default();
+        assert!(last_log.contains("0/1"));
+    }
+
+    #[test]
+    fn picking_required_item_should_log_quest_progress() {
+        let mut game = build_test_game(28);
+        game.monsters.clear();
+        game.ground_items.push(GroundItem {
+            item_id: "delivery_note".to_string(),
+            pos: game.player.pos,
+        });
+
+        let picked = game.try_pickup();
+
+        assert!(picked);
+        assert!(game.log.iter().any(|line| line.contains("1/1")));
+    }
+
+    #[test]
+    fn kill_contract_should_complete_and_grant_reward() {
+        let mut game = build_test_game(29);
+        game.monsters.clear();
+        game.side_contract = Some(SideContract {
+            name: "kill test".to_string(),
+            objective: ContractObjective::KillMonsters { target: 1 },
+            progress: 0,
+            reward_item_id: "battle_tonic".to_string(),
+            reward_qty: 1,
+            completed: false,
+        });
+
+        game.on_monster_killed_for_contract();
+
+        let contract = game.side_contract.as_ref().expect("contract");
+        assert!(contract.completed);
+        assert_eq!(contract.progress, 1);
+        assert_eq!(game.player.item_count("battle_tonic"), 1);
+    }
+
+    #[test]
+    fn collect_contract_should_progress_on_pickup_and_grant_reward() {
+        let mut game = build_test_game(30);
+        game.monsters.clear();
+        game.side_contract = Some(SideContract {
+            name: "collect test".to_string(),
+            objective: ContractObjective::CollectItem {
+                item_id: "healing_potion".to_string(),
+                target: 1,
+            },
+            progress: 0,
+            reward_item_id: "iron_skin_tonic".to_string(),
+            reward_qty: 1,
+            completed: false,
+        });
+        game.ground_items.push(GroundItem {
+            item_id: "healing_potion".to_string(),
+            pos: game.player.pos,
+        });
+
+        let picked = game.try_pickup();
+        assert!(picked);
+
+        let contract = game.side_contract.as_ref().expect("contract");
+        assert!(contract.completed);
+        assert_eq!(contract.progress, 1);
+        assert_eq!(game.player.item_count("iron_skin_tonic"), 1);
     }
 }

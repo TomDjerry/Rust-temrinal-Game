@@ -194,17 +194,8 @@ impl Game {
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_support::build_test_game;
     use super::super::*;
-
-    fn build_test_game(seed: u64) -> Game {
-        let data = GameData::load("assets").expect("assets");
-        let config = GameConfig {
-            seed: Some(seed),
-            width: 40,
-            height: 22,
-        };
-        Game::new(config, seed, data).expect("game")
-    }
 
     #[test]
     fn inventory_item_view_should_describe_equipment_bonuses() {
@@ -221,5 +212,30 @@ mod tests {
         assert!(view.can_drop);
         assert!(view.attr_desc.contains("ATK+3"));
         assert!(view.attr_desc.contains("CRIT+10%"));
+    }
+
+    #[test]
+    fn snapshot_should_include_side_contract_view() {
+        let mut game = build_test_game(31);
+        game.side_contract = Some(SideContract {
+            name: "collect test".to_string(),
+            objective: ContractObjective::CollectItem {
+                item_id: "healing_potion".to_string(),
+                target: 2,
+            },
+            progress: 1,
+            reward_item_id: "iron_skin_tonic".to_string(),
+            reward_qty: 1,
+            completed: false,
+        });
+
+        let snapshot = game.snapshot();
+        let contract = snapshot.side_contract.expect("side contract view");
+
+        assert_eq!(contract.name, "collect test");
+        assert_eq!(contract.progress_text, "1/2");
+        assert!(!contract.objective.is_empty());
+        assert!(!contract.reward_text.is_empty());
+        assert!(!contract.completed);
     }
 }

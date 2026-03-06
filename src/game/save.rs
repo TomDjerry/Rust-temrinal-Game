@@ -92,20 +92,11 @@ impl Game {
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_support::build_test_game;
     use super::*;
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn build_test_game(seed: u64) -> Game {
-        let data = GameData::load("assets").expect("assets");
-        let config = GameConfig {
-            seed: Some(seed),
-            width: 40,
-            height: 22,
-        };
-        Game::new(config, seed, data).expect("game")
-    }
 
     #[test]
     fn save_state_roundtrip_should_restore_core_fields() {

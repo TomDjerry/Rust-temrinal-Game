@@ -494,17 +494,8 @@ impl Game {
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_support::build_test_game;
     use super::super::*;
-
-    fn build_test_game(seed: u64) -> Game {
-        let data = GameData::load("assets").expect("assets");
-        let config = GameConfig {
-            seed: Some(seed),
-            width: 40,
-            height: 22,
-        };
-        Game::new(config, seed, data).expect("game")
-    }
 
     #[test]
     fn item_permissions_should_match_item_effects() {
