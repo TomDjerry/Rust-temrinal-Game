@@ -1,4 +1,6 @@
 pub mod combat;
+mod actions;
+mod ai;
 mod contracts;
 pub mod data;
 mod inventory;
@@ -19,8 +21,7 @@ use std::time::Duration;
 
 use crate::game::combat::roll_damage;
 use crate::game::data::{EquipmentSlot, GameData, ItemEffectDef};
-use crate::game::map::path::bfs_next_step;
-use crate::game::map::{DungeonLayout, Map, Pos, compute_fov, generate_dungeon, line_of_sight};
+use crate::game::map::{DungeonLayout, Map, Pos, compute_fov, generate_dungeon};
 use crate::game::ui::{
     AppTerminal, InventoryItemView, MapCell, MapTone, SideContractView, UiMode, UiSnapshot,
 };
@@ -154,18 +155,13 @@ struct GroundItem {
     pos: Pos,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(tag = "state", rename_all = "snake_case")]
 enum MonsterAiState {
+    #[default]
     Patrol,
     Alert { target: Pos, turns_left: u8 },
     Flee { turns_left: u8 },
-}
-
-impl Default for MonsterAiState {
-    fn default() -> Self {
-        Self::Patrol
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -497,125 +493,6 @@ impl Game {
         }
     }
 
-    fn apply_action(&mut self, action: Action) {
-        match action {
-            Action::Quit => {
-                self.quit = true;
-                return;
-            }
-            Action::Save => {
-                match self.save_to_file(SAVE_FILE_PATH) {
-                    Ok(()) => self.push_log(format!("存档成功: {SAVE_FILE_PATH}")),
-                    Err(err) => self.push_log(format!("存档失败: {err:#}")),
-                }
-                return;
-            }
-            Action::Load => {
-                let data = self.data.clone();
-                match Self::load_from_file(SAVE_FILE_PATH, data) {
-                    Ok(mut loaded) => {
-                        loaded.push_log(format!("读档成功: {SAVE_FILE_PATH}"));
-                        *self = loaded;
-                    }
-                    Err(err) => self.push_log(format!("读档失败: {err:#}")),
-                }
-                return;
-            }
-            Action::Escape => {
-                if self.ui_mode == UiMode::Normal {
-                    self.quit = true;
-                } else {
-                    self.ui_mode = UiMode::Normal;
-                }
-                return;
-            }
-            Action::ToggleInventory => {
-                self.ui_mode = ui::transition_mode(self.ui_mode, 'i');
-                if self.ui_mode == UiMode::Inventory {
-                    self.clamp_inventory_selected();
-                }
-                return;
-            }
-            Action::ToggleHelp => {
-                self.ui_mode = ui::transition_mode(self.ui_mode, '?');
-                return;
-            }
-            _ => {}
-        }
-
-        if self.ui_mode == UiMode::Help {
-            return;
-        }
-
-        if self.ui_mode == UiMode::Inventory {
-            let consumed_turn = self.apply_inventory_action(action);
-            if consumed_turn {
-                self.pending_noise = self.noise_from_action(action);
-                self.finish_player_turn();
-            }
-            return;
-        }
-
-        let mut consumed_turn = false;
-
-        match action {
-            Action::Move(dx, dy) => consumed_turn = self.try_move_player(dx, dy),
-            Action::Pickup => consumed_turn = self.try_pickup(),
-            Action::UsePotion => consumed_turn = self.try_use_potion(),
-            Action::Wait => {
-                self.push_log("你选择等待一回合".to_string());
-                consumed_turn = true;
-            }
-            Action::InventoryUse | Action::InventoryDrop | Action::InventoryUnequip => {}
-            Action::Save
-            | Action::Load
-            | Action::ToggleInventory
-            | Action::ToggleHelp
-            | Action::Escape
-            | Action::Quit => {}
-        }
-
-        if consumed_turn {
-            self.pending_noise = self.noise_from_action(action);
-            self.finish_player_turn();
-        }
-    }
-
-    fn noise_from_action(&self, action: Action) -> Option<NoiseEvent> {
-        let radius = match action {
-            Action::Move(_, _) => NOISE_RADIUS_MOVE,
-            Action::Pickup
-            | Action::UsePotion
-            | Action::InventoryUse
-            | Action::InventoryDrop
-            | Action::InventoryUnequip => NOISE_RADIUS_INTERACT,
-            Action::Wait
-            | Action::Save
-            | Action::Load
-            | Action::ToggleInventory
-            | Action::ToggleHelp
-            | Action::Escape
-            | Action::Quit => return None,
-        };
-        Some(NoiseEvent {
-            pos: self.player.pos,
-            radius,
-        })
-    }
-
-    fn finish_player_turn(&mut self) {
-        if self.quit || self.won || !self.player.stats.is_alive() {
-            return;
-        }
-        self.turn += 1;
-        self.monster_turn();
-        self.pending_noise = None;
-        self.tick_active_buffs();
-        self.cleanup_dead_monsters();
-        self.check_victory();
-        self.recompute_fov();
-    }
-
     fn roll_chance(&mut self, chance_percent: u8) -> bool {
         if chance_percent == 0 {
             return false;
@@ -667,173 +544,6 @@ impl Game {
         self.player.pos = target;
         self.try_auto_pickup_package();
         true
-    }
-
-    fn monster_turn(&mut self) {
-        if !self.player.stats.is_alive() {
-            return;
-        }
-
-        let noise_event = self.pending_noise;
-        let mut occupied: HashSet<Pos> = self
-            .monsters
-            .iter()
-            .filter(|m| m.stats.is_alive())
-            .map(|m| m.pos)
-            .collect();
-
-        for idx in 0..self.monsters.len() {
-            if !self.monsters[idx].stats.is_alive() {
-                continue;
-            }
-
-            occupied.remove(&self.monsters[idx].pos);
-            let monster_pos = self.monsters[idx].pos;
-            let low_hp_threshold = (self.monsters[idx].stats.max_hp / 3).max(1);
-            let is_low_hp = self.monsters[idx].stats.hp <= low_hp_threshold;
-
-            let sees_player = monster_pos.manhattan(self.player.pos) <= FOV_RADIUS
-                && line_of_sight(&self.map, monster_pos, self.player.pos);
-
-            self.monsters[idx].ai_state = if is_low_hp {
-                MonsterAiState::Flee {
-                    turns_left: FLEE_TURNS,
-                }
-            } else if sees_player {
-                MonsterAiState::Alert {
-                    target: self.player.pos,
-                    turns_left: ALERT_TURNS,
-                }
-            } else if let Some(noise) = noise_event {
-                if monster_pos.manhattan(noise.pos) <= noise.radius {
-                    MonsterAiState::Alert {
-                        target: noise.pos,
-                        turns_left: ALERT_TURNS,
-                    }
-                } else {
-                    Self::decay_ai_state(self.monsters[idx].ai_state)
-                }
-            } else {
-                Self::decay_ai_state(self.monsters[idx].ai_state)
-            };
-
-            let current_state = self.monsters[idx].ai_state;
-
-            if monster_pos.is_adjacent4(self.player.pos)
-                && !matches!(current_state, MonsterAiState::Flee { turns_left: _ })
-            {
-                if self.roll_chance(self.player_effective_dodge_chance()) {
-                    self.push_log(format!(
-                        "你闪避了{}({})的攻击",
-                        self.monsters[idx].name, self.monsters[idx].kind_id
-                    ));
-                    occupied.insert(self.monsters[idx].pos);
-                    continue;
-                }
-                let damage = roll_damage(
-                    self.monsters[idx].stats.atk,
-                    self.player_effective_def(),
-                    &mut self.rng,
-                );
-                let reduction_pct = self.player_effective_damage_reduction_pct() as i32;
-                let reduced_damage = (damage * (100 - reduction_pct) / 100).max(1);
-                self.player.stats.hp -= reduced_damage;
-                self.push_log(format!(
-                    "{}({}) 命中你，造成{}伤害",
-                    self.monsters[idx].name, self.monsters[idx].kind_id, reduced_damage
-                ));
-                if self.player.stats.hp <= 0 {
-                    self.push_log("你倒下了，投递失败".to_string());
-                    occupied.insert(self.monsters[idx].pos);
-                    break;
-                }
-                occupied.insert(self.monsters[idx].pos);
-                continue;
-            }
-
-            let mut moved = false;
-            match current_state {
-                MonsterAiState::Flee { turns_left: _ } => {
-                    if let Some(step) = self.best_flee_step(monster_pos, &occupied) {
-                        self.monsters[idx].pos = step;
-                        moved = true;
-                    }
-                }
-                MonsterAiState::Alert {
-                    target,
-                    turns_left: _,
-                } => {
-                    if let Some(step) = bfs_next_step(&self.map, monster_pos, target, &occupied) {
-                        if step != self.player.pos && !occupied.contains(&step) {
-                            self.monsters[idx].pos = step;
-                            moved = true;
-                        }
-                    }
-                }
-                MonsterAiState::Patrol => {}
-            }
-
-            if !moved {
-                let dirs = [(0, -1), (0, 1), (-1, 0), (1, 0)];
-                let mut choices = Vec::new();
-                for (dx, dy) in dirs {
-                    let next = Pos::new(monster_pos.x + dx, monster_pos.y + dy);
-                    if next == self.player.pos {
-                        continue;
-                    }
-                    if self.map.is_walkable(next) && !occupied.contains(&next) {
-                        choices.push(next);
-                    }
-                }
-                if let Some(choice) = choices.choose(&mut self.rng).copied() {
-                    self.monsters[idx].pos = choice;
-                }
-            }
-
-            occupied.insert(self.monsters[idx].pos);
-        }
-    }
-
-    fn decay_ai_state(state: MonsterAiState) -> MonsterAiState {
-        match state {
-            MonsterAiState::Patrol => MonsterAiState::Patrol,
-            MonsterAiState::Alert { target, turns_left } => {
-                if turns_left > 1 {
-                    MonsterAiState::Alert {
-                        target,
-                        turns_left: turns_left - 1,
-                    }
-                } else {
-                    MonsterAiState::Patrol
-                }
-            }
-            MonsterAiState::Flee { turns_left } => {
-                if turns_left > 1 {
-                    MonsterAiState::Flee {
-                        turns_left: turns_left - 1,
-                    }
-                } else {
-                    MonsterAiState::Patrol
-                }
-            }
-        }
-    }
-
-    fn best_flee_step(&self, from: Pos, occupied: &HashSet<Pos>) -> Option<Pos> {
-        let dirs = [(0, -1), (0, 1), (-1, 0), (1, 0)];
-        let mut best: Option<(Pos, i32)> = None;
-        for (dx, dy) in dirs {
-            let next = Pos::new(from.x + dx, from.y + dy);
-            if next == self.player.pos || occupied.contains(&next) || !self.map.is_walkable(next) {
-                continue;
-            }
-            let score = next.manhattan(self.player.pos);
-            match best {
-                Some((_, best_score)) if score <= best_score => {}
-                _ => best = Some((next, score)),
-            }
-        }
-        best.map(|(pos, _)| pos)
     }
 
     fn check_victory(&mut self) {
