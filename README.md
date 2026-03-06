@@ -96,9 +96,16 @@ saves/save1.json
 src/
   main.rs
   game/
-    mod.rs          # game loop, state, input, orchestration
+    mod.rs          # core types + top-level orchestration
+    actions.rs      # action dispatch and turn flow
+    ai.rs           # monster AI and state decay
     data.rs         # item/monster data definitions and loading
+    contracts.rs    # side contracts and required quest progress
     combat.rs       # damage formula
+    inventory.rs    # inventory, equipment, buffs, pickup/use
+    save.rs         # save/load serialization helpers
+    snapshot.rs     # UI snapshot and view-model mapping
+    util.rs         # shared small helpers
     map/
       mod.rs        # map model, generation, FOV, LOS
       path.rs       # BFS pathfinding
@@ -117,10 +124,11 @@ docs/
 Core loop is playable and tested.  
 Latest verified status is tracked in `docs/project-progress.md`.
 
+The runtime was also refactored into smaller modules so future features can land with lower risk.
+
 ## Roadmap (Next)
 
 - Side contract system (kill/collect/time-limit/stealth)
 - Environment interactions (doors/locks/traps/noise propagation)
 - Ranged combat and skill systems
 - More automated regression tests
-
