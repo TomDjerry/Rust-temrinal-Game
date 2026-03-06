@@ -128,11 +128,88 @@ impl Game {
 #[cfg(test)]
 mod tests {
     use super::super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 
     #[test]
     fn noise_radius_for_action_should_match_action_kind() {
         assert_eq!(Game::noise_radius_for_action(Action::Move(1, 0)), Some(6));
         assert_eq!(Game::noise_radius_for_action(Action::Pickup), Some(4));
         assert_eq!(Game::noise_radius_for_action(Action::Wait), None);
+    }
+
+    #[test]
+    fn should_ignore_key_release_event_for_movement() {
+        let release = KeyEvent {
+            code: KeyCode::Char('d'),
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Release,
+            state: KeyEventState::NONE,
+        };
+        let press = KeyEvent {
+            code: KeyCode::Char('d'),
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        };
+
+        assert!(action_from_key_event(release).is_none());
+        assert!(matches!(
+            action_from_key_event(press),
+            Some(Action::Move(1, 0))
+        ));
+    }
+
+    #[test]
+    fn should_map_f2_f3_to_save_load_actions() {
+        let f2 = KeyEvent {
+            code: KeyCode::F(2),
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        };
+        let f3 = KeyEvent {
+            code: KeyCode::F(3),
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        };
+
+        assert!(matches!(action_from_key_event(f2), Some(Action::Save)));
+        assert!(matches!(action_from_key_event(f3), Some(Action::Load)));
+    }
+
+    #[test]
+    fn should_map_inventory_operation_keys() {
+        let enter = KeyEvent {
+            code: KeyCode::Enter,
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        };
+        let x = KeyEvent {
+            code: KeyCode::Char('x'),
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        };
+        let r = KeyEvent {
+            code: KeyCode::Char('r'),
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        };
+
+        assert!(matches!(
+            action_from_key_event(enter),
+            Some(Action::InventoryUse)
+        ));
+        assert!(matches!(
+            action_from_key_event(x),
+            Some(Action::InventoryDrop)
+        ));
+        assert!(matches!(
+            action_from_key_event(r),
+            Some(Action::InventoryUnequip)
+        ));
     }
 }

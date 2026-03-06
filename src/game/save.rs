@@ -93,6 +93,9 @@ impl Game {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn build_test_game(seed: u64) -> Game {
         let data = GameData::load("assets").expect("assets");
@@ -115,6 +118,44 @@ mod tests {
 
         let save = SaveState::from_game(&game);
         let restored = save.into_game(game.data.clone());
+
+        assert_eq!(restored.seed, game.seed);
+        assert_eq!(restored.turn, game.turn);
+        assert_eq!(restored.player.pos, game.player.pos);
+        assert_eq!(
+            restored.player.item_count("healing_potion"),
+            game.player.item_count("healing_potion")
+        );
+        assert_eq!(
+            restored.player.has_item("package"),
+            game.player.has_item("package")
+        );
+        assert_eq!(restored.map.width, game.map.width);
+        assert_eq!(restored.map.height, game.map.height);
+        assert_eq!(restored.ui_mode, UiMode::Normal);
+    }
+
+    #[test]
+    fn save_load_roundtrip_should_restore_core_state() {
+        let mut game = build_test_game(42);
+        game.turn = 9;
+        let _ = game.add_item_to_inventory("healing_potion", 3);
+        let _ = game.add_item_to_inventory("package", 1);
+        game.player.pos = Pos::new(game.player.pos.x + 1, game.player.pos.y);
+        game.ui_mode = UiMode::Help;
+
+        let mut path = PathBuf::from("target");
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_nanos();
+        path.push(format!("test-save-{nanos}.json"));
+
+        game.save_to_file(path.to_str().expect("path"))
+            .expect("save");
+        let restored =
+            Game::load_from_file(path.to_str().expect("path"), game.data.clone()).expect("load");
+        fs::remove_file(&path).expect("cleanup");
 
         assert_eq!(restored.seed, game.seed);
         assert_eq!(restored.turn, game.turn);
