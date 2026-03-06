@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+use crate::game::util::strip_bom;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EquipmentSlot {
@@ -97,8 +99,4 @@ impl GameData {
             monster_defs: monsters,
         })
     }
-}
-
-fn strip_bom(content: &str) -> &str {
-    content.strip_prefix('\u{feff}').unwrap_or(content)
 }

@@ -2,6 +2,8 @@ pub mod combat;
 pub mod data;
 pub mod map;
 pub mod ui;
+mod save;
+mod util;
 
 use anyhow::{Context, Result, bail};
 use crossterm::cursor;
@@ -21,8 +23,6 @@ use crate::game::ui::{
     AppTerminal, InventoryItemView, MapCell, MapTone, SideContractView, UiMode, UiSnapshot,
 };
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::path::Path;
 
 const DEFAULT_WIDTH: i32 = 60;
 const DEFAULT_HEIGHT: i32 = 26;
@@ -1598,69 +1598,6 @@ impl Game {
         ui::draw(terminal, &snapshot)
     }
 
-    fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        let path = path.as_ref();
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create {}", parent.display()))?;
-        }
-        let save = self.to_save_state();
-        let json = serde_json::to_string_pretty(&save).context("failed to serialize save data")?;
-        fs::write(path, json).with_context(|| format!("failed to write {}", path.display()))?;
-        Ok(())
-    }
-
-    fn load_from_file<P: AsRef<Path>>(path: P, data: GameData) -> Result<Self> {
-        let path = path.as_ref();
-        let raw = fs::read_to_string(path)
-            .with_context(|| format!("failed to read {}", path.display()))?;
-        let save: SaveState =
-            serde_json::from_str(strip_bom(&raw)).context("failed to parse save file")?;
-        Ok(Self::from_save_state(save, data))
-    }
-
-    fn to_save_state(&self) -> SaveState {
-        SaveState {
-            seed: self.seed,
-            map: self.map.clone(),
-            exit_pos: self.exit_pos,
-            player: self.player.clone(),
-            monsters: self.monsters.clone(),
-            ground_items: self.ground_items.clone(),
-            turn: self.turn,
-            won: self.won,
-            logs: self.log.iter().cloned().collect(),
-            active_buffs: self.active_buffs.clone(),
-            side_contract: self.side_contract.clone(),
-        }
-    }
-
-    fn from_save_state(save: SaveState, data: GameData) -> Self {
-        let mut game = Self {
-            seed: save.seed,
-            map: save.map,
-            exit_pos: save.exit_pos,
-            player: save.player,
-            monsters: save.monsters,
-            ground_items: save.ground_items,
-            visible: HashSet::new(),
-            log: VecDeque::from(save.logs),
-            turn: save.turn,
-            rng: StdRng::seed_from_u64(save.seed ^ ((save.turn as u64) << 32) ^ 0x9E3779B97F4A7C15),
-            won: save.won,
-            quit: false,
-            ui_mode: UiMode::Normal,
-            inventory_selected: 0,
-            data,
-            pending_noise: None,
-            active_buffs: save.active_buffs,
-            side_contract: save.side_contract,
-        };
-        game.ensure_side_contract(false);
-        game.recompute_fov();
-        game
-    }
-
     fn snapshot(&self) -> UiSnapshot {
         UiSnapshot {
             map_rows: self.map_rows(),
@@ -1854,27 +1791,6 @@ impl Game {
             tone: MapTone::Explored,
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct SaveState {
-    seed: u64,
-    map: Map,
-    exit_pos: Pos,
-    player: Player,
-    monsters: Vec<Monster>,
-    ground_items: Vec<GroundItem>,
-    turn: u32,
-    won: bool,
-    logs: Vec<String>,
-    #[serde(default)]
-    active_buffs: Vec<ActiveBuff>,
-    #[serde(default)]
-    side_contract: Option<SideContract>,
-}
-
-fn strip_bom(content: &str) -> &str {
-    content.strip_prefix('\u{feff}').unwrap_or(content)
 }
 
 #[cfg(test)]
