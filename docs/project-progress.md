@@ -63,6 +63,8 @@
 - [x] Help 增强：补充 ATK/DEF/CRIT/EVA/PEN/RES 属性说明
 - [x] 背包属性标注：装备/消耗品显示具体加成与效果说明
 - [x] 运行时重构阶段 1：`game` 按 `actions/ai/contracts/inventory/save/snapshot/util` 拆分，降低 `mod.rs` 复杂度
+- [x] 维护性重构：`contracts` 拆为 `contract_generation / contract_runtime`，清理约束生成魔法数字
+- [x] 维护性重构：`inventory` 拆为 `inventory_operations / equipment / buffs`，`equipment_bonus_totals` 改为 `EquipmentBonuses`
 - [x] 公共工具收敛：`strip_bom` 统一到 `util.rs`
 - [x] 静态检查清理：`cargo clippy --all-targets --all-features -- -D warnings` 通过
 
