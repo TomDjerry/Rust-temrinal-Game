@@ -116,6 +116,7 @@ impl Game {
             return;
         }
         self.turn += 1;
+        self.tick_contract_constraints();
         self.monster_turn();
         self.pending_noise = None;
         self.tick_active_buffs();

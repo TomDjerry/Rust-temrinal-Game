@@ -51,6 +51,7 @@ impl Game {
 
             occupied.remove(&self.monsters[idx].pos);
             let monster_pos = self.monsters[idx].pos;
+            let previous_state = self.monsters[idx].ai_state;
             let low_hp_threshold = (self.monsters[idx].stats.max_hp / 3).max(1);
             let is_low_hp = self.monsters[idx].stats.hp <= low_hp_threshold;
 
@@ -78,6 +79,13 @@ impl Game {
             } else {
                 self.monsters[idx].ai_state.decay()
             };
+
+            if self.can_progress_side_contract()
+                && !matches!(previous_state, MonsterAiState::Alert { .. })
+                && matches!(self.monsters[idx].ai_state, MonsterAiState::Alert { .. })
+            {
+                self.on_contract_alert_triggered();
+            }
 
             let current_state = self.monsters[idx].ai_state;
 
@@ -273,5 +281,56 @@ mod tests {
             game.monsters[0].ai_state,
             MonsterAiState::Flee { turns_left: _ }
         ));
+    }
+
+    #[test]
+    fn monster_alert_should_fail_stealth_contract() {
+        let mut game = build_test_game(91);
+        game.monsters.clear();
+        game.side_contract = Some(SideContract {
+            name: "stealth collect".to_string(),
+            objective: ContractObjective::CollectItem {
+                item_id: "healing_potion".to_string(),
+                target: 1,
+            },
+            progress: 0,
+            reward_item_id: "battle_tonic".to_string(),
+            reward_qty: 1,
+            completed: false,
+            constraints: vec![ContractConstraint::Stealth { exposed: false }],
+            failed: false,
+            failure_reason: None,
+        });
+
+        let mut map = Map::new(20, 20);
+        for y in 2..=4 {
+            map.set_tile_type(Pos::new(2, y), map::TileType::Floor);
+            map.set_tile_type(Pos::new(8, y), map::TileType::Floor);
+        }
+        for x in 2..=8 {
+            map.set_tile_type(Pos::new(x, 4), map::TileType::Floor);
+        }
+        game.map = map;
+        game.player.pos = Pos::new(2, 2);
+        game.monsters.push(test_monster(
+            "test",
+            "Test",
+            't',
+            Pos::new(8, 2),
+            Stats {
+                hp: 8,
+                max_hp: 8,
+                atk: 3,
+                def: 0,
+            },
+        ));
+        game.pending_noise = Some(NoiseEvent {
+            pos: game.player.pos,
+            radius: 10,
+        });
+
+        game.monster_turn();
+
+        assert!(game.side_contract.as_ref().expect("contract").failed);
     }
 }

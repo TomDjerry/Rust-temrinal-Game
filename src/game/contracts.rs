@@ -23,6 +23,16 @@ impl SideContract {
     pub(super) fn is_terminal(&self) -> bool {
         self.completed || self.failed
     }
+
+    pub(super) fn remaining_turns(&self, current_turn: u32) -> Option<i32> {
+        self.constraints.iter().find_map(|constraint| match constraint {
+            ContractConstraint::TimeLimit {
+                start_turn,
+                max_turns,
+            } => Some(*max_turns as i32 - current_turn.saturating_sub(*start_turn) as i32),
+            ContractConstraint::Stealth { .. } => None,
+        })
+    }
 }
 
 impl Game {
@@ -157,7 +167,7 @@ impl Game {
     pub(super) fn on_monster_killed_for_contract(&mut self) {
         let mut progress_log: Option<String> = None;
         if let Some(contract) = &mut self.side_contract
-            && !contract.completed
+            && !contract.is_terminal()
             && matches!(contract.objective, ContractObjective::KillMonsters { .. })
         {
             contract.progress = contract.progress.saturating_add(1);
@@ -174,7 +184,7 @@ impl Game {
         if self
             .side_contract
             .as_ref()
-            .is_some_and(|contract| !contract.completed)
+            .is_some_and(|contract| !contract.is_terminal())
         {
             self.try_complete_side_contract();
         }
@@ -186,7 +196,7 @@ impl Game {
         }
         let mut progress_log: Option<String> = None;
         if let Some(contract) = &mut self.side_contract {
-            if contract.completed {
+            if contract.is_terminal() {
                 return;
             }
             if let ContractObjective::CollectItem {
@@ -213,7 +223,7 @@ impl Game {
     pub(super) fn try_complete_side_contract(&mut self) {
         let mut reward: Option<(String, u32, String)> = None;
         if let Some(contract) = &mut self.side_contract {
-            if contract.completed {
+            if contract.is_terminal() {
                 return;
             }
             let target = contract.target();
@@ -244,6 +254,59 @@ impl Game {
             ));
         } else {
             self.push_log(format!("支线合约完成: {contract_name}，但奖励未能放入背包"));
+        }
+    }
+
+    pub(super) fn can_progress_side_contract(&self) -> bool {
+        self.side_contract
+            .as_ref()
+            .is_some_and(|contract| !contract.is_terminal())
+    }
+
+    pub(super) fn on_contract_alert_triggered(&mut self) {
+        let mut should_fail = false;
+        if let Some(contract) = &mut self.side_contract {
+            if contract.is_terminal() {
+                return;
+            }
+            for constraint in &mut contract.constraints {
+                if let ContractConstraint::Stealth { exposed } = constraint && !*exposed {
+                    *exposed = true;
+                    should_fail = true;
+                }
+            }
+        }
+        if should_fail {
+            self.fail_side_contract("stealth failed: alerted");
+        }
+    }
+
+    pub(super) fn fail_side_contract(&mut self, reason: impl Into<String>) {
+        let reason = reason.into();
+        let mut contract_name = None;
+        if let Some(contract) = &mut self.side_contract {
+            if contract.is_terminal() {
+                return;
+            }
+            contract.failed = true;
+            contract.failure_reason = Some(reason.clone());
+            contract_name = Some(contract.name.clone());
+        }
+        if let Some(contract_name) = contract_name {
+            self.push_log(format!("contract failed: {contract_name} - {reason}"));
+        }
+    }
+
+    pub(super) fn tick_contract_constraints(&mut self) {
+        let should_fail = self.side_contract.as_ref().is_some_and(|contract| {
+            !contract.is_terminal()
+                && contract
+                    .remaining_turns(self.turn)
+                    .is_some_and(|remaining| remaining < 0)
+        });
+
+        if should_fail {
+            self.fail_side_contract("time limit exceeded");
         }
     }
 
@@ -361,6 +424,135 @@ mod tests {
         assert!(!stealth.has_time_limit());
         assert!(!timed.is_terminal());
         assert_eq!(timed.failure_reason.as_deref(), None);
+    }
+
+    #[test]
+    fn time_limited_contract_should_fail_after_deadline() {
+        let mut game = build_test_game(81);
+        game.monsters.clear();
+        game.side_contract = Some(SideContract {
+            name: "timed collect".to_string(),
+            objective: ContractObjective::CollectItem {
+                item_id: "healing_potion".to_string(),
+                target: 1,
+            },
+            progress: 0,
+            reward_item_id: "iron_skin_tonic".to_string(),
+            reward_qty: 1,
+            completed: false,
+            constraints: vec![ContractConstraint::TimeLimit {
+                start_turn: game.turn,
+                max_turns: 1,
+            }],
+            failed: false,
+            failure_reason: None,
+        });
+
+        game.apply_action(Action::Wait);
+        assert!(!game.side_contract.as_ref().expect("contract").failed);
+
+        game.apply_action(Action::Wait);
+
+        let contract = game.side_contract.as_ref().expect("contract");
+        assert!(contract.failed);
+        assert!(!contract.completed);
+        assert_eq!(contract.failure_reason.as_deref(), Some("time limit exceeded"));
+    }
+
+    #[test]
+    fn time_limited_contract_should_still_reward_before_deadline() {
+        let mut game = build_test_game(82);
+        game.monsters.clear();
+        game.side_contract = Some(SideContract {
+            name: "timed collect".to_string(),
+            objective: ContractObjective::CollectItem {
+                item_id: "healing_potion".to_string(),
+                target: 1,
+            },
+            progress: 0,
+            reward_item_id: "iron_skin_tonic".to_string(),
+            reward_qty: 1,
+            completed: false,
+            constraints: vec![ContractConstraint::TimeLimit {
+                start_turn: game.turn,
+                max_turns: 1,
+            }],
+            failed: false,
+            failure_reason: None,
+        });
+
+        game.apply_action(Action::Wait);
+        game.on_item_collected_for_contract("healing_potion", 1);
+
+        let contract = game.side_contract.as_ref().expect("contract");
+        assert!(contract.completed);
+        assert!(!contract.failed);
+        assert_eq!(game.player.item_count("iron_skin_tonic"), 1);
+    }
+
+    #[test]
+    fn failed_time_limited_contract_should_stop_progress_and_reward() {
+        let mut game = build_test_game(83);
+        game.monsters.clear();
+        game.side_contract = Some(SideContract {
+            name: "timed collect".to_string(),
+            objective: ContractObjective::CollectItem {
+                item_id: "healing_potion".to_string(),
+                target: 1,
+            },
+            progress: 0,
+            reward_item_id: "iron_skin_tonic".to_string(),
+            reward_qty: 1,
+            completed: false,
+            constraints: vec![ContractConstraint::TimeLimit {
+                start_turn: game.turn,
+                max_turns: 0,
+            }],
+            failed: false,
+            failure_reason: None,
+        });
+
+        game.apply_action(Action::Wait);
+        game.on_item_collected_for_contract("healing_potion", 1);
+
+        let contract = game.side_contract.as_ref().expect("contract");
+        assert!(contract.failed);
+        assert!(!contract.completed);
+        assert_eq!(contract.progress, 0);
+        assert_eq!(game.player.item_count("iron_skin_tonic"), 0);
+    }
+
+    #[test]
+    fn stealth_contract_should_fail_when_alert_triggered() {
+        let mut game = build_test_game(84);
+        game.monsters.clear();
+        game.side_contract = Some(SideContract {
+            name: "stealth collect".to_string(),
+            objective: ContractObjective::CollectItem {
+                item_id: "healing_potion".to_string(),
+                target: 1,
+            },
+            progress: 0,
+            reward_item_id: "battle_tonic".to_string(),
+            reward_qty: 1,
+            completed: false,
+            constraints: vec![ContractConstraint::Stealth { exposed: false }],
+            failed: false,
+            failure_reason: None,
+        });
+
+        game.on_contract_alert_triggered();
+
+        let contract = game.side_contract.as_ref().expect("contract");
+        assert!(contract.failed);
+        assert_eq!(
+            contract.failure_reason.as_deref(),
+            Some("stealth failed: alerted")
+        );
+        assert!(matches!(
+            contract.constraints.first(),
+            Some(ContractConstraint::Stealth { exposed: true })
+        ));
     }
 
     #[test]
