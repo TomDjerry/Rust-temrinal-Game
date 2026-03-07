@@ -7,6 +7,22 @@ impl SideContract {
             ContractObjective::CollectItem { target, .. } => target,
         }
     }
+
+    pub(super) fn has_time_limit(&self) -> bool {
+        self.constraints
+            .iter()
+            .any(|constraint| matches!(constraint, ContractConstraint::TimeLimit { .. }))
+    }
+
+    pub(super) fn has_stealth_requirement(&self) -> bool {
+        self.constraints
+            .iter()
+            .any(|constraint| matches!(constraint, ContractConstraint::Stealth { .. }))
+    }
+
+    pub(super) fn is_terminal(&self) -> bool {
+        self.completed || self.failed
+    }
 }
 
 impl Game {
@@ -23,6 +39,9 @@ impl Game {
                 reward_item_id: "battle_tonic".to_string(),
                 reward_qty: 1,
                 completed: false,
+                constraints: Vec::new(),
+                failed: false,
+                failure_reason: None,
             }
         } else {
             SideContract {
@@ -35,6 +54,9 @@ impl Game {
                 reward_item_id: "iron_skin_tonic".to_string(),
                 reward_qty: 1,
                 completed: false,
+                constraints: Vec::new(),
+                failed: false,
+                failure_reason: None,
             }
         };
 
@@ -262,6 +284,9 @@ mod tests {
             reward_item_id: "battle_tonic".to_string(),
             reward_qty: 1,
             completed: false,
+            constraints: Vec::new(),
+            failed: false,
+            failure_reason: None,
         };
         let collect_contract = SideContract {
             name: "测试收集".to_string(),
@@ -273,6 +298,9 @@ mod tests {
             reward_item_id: "iron_skin_tonic".to_string(),
             reward_qty: 1,
             completed: false,
+            constraints: Vec::new(),
+            failed: false,
+            failure_reason: None,
         };
 
         assert_eq!(kill_contract.target(), 3);
@@ -291,6 +319,48 @@ mod tests {
 
         let _ = game.add_item_to_inventory("delivery_note", 1);
         assert_eq!(game.required_quest_progress(), (1, 1));
+    }
+
+    #[test]
+    fn side_contract_defaults_should_support_constraints() {
+        let timed = SideContract {
+            name: "timed test".to_string(),
+            objective: ContractObjective::CollectItem {
+                item_id: "healing_potion".to_string(),
+                target: 2,
+            },
+            progress: 0,
+            reward_item_id: "iron_skin_tonic".to_string(),
+            reward_qty: 1,
+            completed: false,
+            constraints: vec![ContractConstraint::TimeLimit {
+                start_turn: 3,
+                max_turns: 8,
+            }],
+            failed: false,
+            failure_reason: None,
+        };
+        let stealth = SideContract {
+            name: "stealth test".to_string(),
+            objective: ContractObjective::CollectItem {
+                item_id: "healing_potion".to_string(),
+                target: 1,
+            },
+            progress: 0,
+            reward_item_id: "battle_tonic".to_string(),
+            reward_qty: 1,
+            completed: false,
+            constraints: vec![ContractConstraint::Stealth { exposed: false }],
+            failed: false,
+            failure_reason: None,
+        };
+
+        assert!(timed.has_time_limit());
+        assert!(!timed.has_stealth_requirement());
+        assert!(stealth.has_stealth_requirement());
+        assert!(!stealth.has_time_limit());
+        assert!(!timed.is_terminal());
+        assert_eq!(timed.failure_reason.as_deref(), None);
     }
 
     #[test]
@@ -359,6 +429,9 @@ mod tests {
             reward_item_id: "battle_tonic".to_string(),
             reward_qty: 1,
             completed: false,
+            constraints: Vec::new(),
+            failed: false,
+            failure_reason: None,
         });
 
         game.on_monster_killed_for_contract();
@@ -383,6 +456,9 @@ mod tests {
             reward_item_id: "iron_skin_tonic".to_string(),
             reward_qty: 1,
             completed: false,
+            constraints: Vec::new(),
+            failed: false,
+            failure_reason: None,
         });
         game.ground_items.push(GroundItem {
             item_id: "healing_potion".to_string(),

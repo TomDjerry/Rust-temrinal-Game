@@ -227,6 +227,9 @@ mod tests {
             reward_item_id: "iron_skin_tonic".to_string(),
             reward_qty: 1,
             completed: false,
+            constraints: Vec::new(),
+            failed: false,
+            failure_reason: None,
         });
 
         let snapshot = game.snapshot();

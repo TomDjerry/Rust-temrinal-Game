@@ -192,6 +192,12 @@ enum ContractObjective {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+enum ContractConstraint {
+    TimeLimit { start_turn: u32, max_turns: u32 },
+    Stealth { exposed: bool },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct SideContract {
     name: String,
     objective: ContractObjective,
@@ -199,6 +205,12 @@ struct SideContract {
     reward_item_id: String,
     reward_qty: u32,
     completed: bool,
+    #[serde(default)]
+    constraints: Vec<ContractConstraint>,
+    #[serde(default)]
+    failed: bool,
+    #[serde(default)]
+    failure_reason: Option<String>,
 }
 
 #[derive(Debug)]
