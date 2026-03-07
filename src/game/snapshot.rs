@@ -237,8 +237,80 @@ mod tests {
 
         assert_eq!(contract.name, "collect test");
         assert_eq!(contract.progress_text, "1/2");
+        assert_eq!(contract.status_text, "进行中");
+        assert!(contract.constraint_lines.is_empty());
+        assert_eq!(contract.failure_reason, None);
         assert!(!contract.objective.is_empty());
         assert!(!contract.reward_text.is_empty());
         assert!(!contract.completed);
+    }
+
+    #[test]
+    fn snapshot_should_include_contract_constraint_status() {
+        let mut game = build_test_game(72);
+        game.turn = 2;
+        game.side_contract = Some(SideContract {
+            name: "timed stealth collect".to_string(),
+            objective: ContractObjective::CollectItem {
+                item_id: "healing_potion".to_string(),
+                target: 2,
+            },
+            progress: 1,
+            reward_item_id: "iron_skin_tonic".to_string(),
+            reward_qty: 1,
+            completed: false,
+            constraints: vec![
+                ContractConstraint::TimeLimit {
+                    start_turn: 0,
+                    max_turns: 5,
+                },
+                ContractConstraint::Stealth { exposed: false },
+            ],
+            failed: false,
+            failure_reason: None,
+        });
+
+        let snapshot = game.snapshot();
+        let contract = snapshot.side_contract.expect("side contract view");
+
+        assert_eq!(contract.status_text, "进行中");
+        assert_eq!(
+            contract.constraint_lines,
+            vec!["剩余: 3 回合".to_string(), "潜行: 未暴露".to_string()]
+        );
+        assert_eq!(contract.failure_reason, None);
+    }
+
+    #[test]
+    fn snapshot_should_include_failed_contract_reason() {
+        let mut game = build_test_game(73);
+        game.turn = 4;
+        game.side_contract = Some(SideContract {
+            name: "timed collect".to_string(),
+            objective: ContractObjective::CollectItem {
+                item_id: "healing_potion".to_string(),
+                target: 1,
+            },
+            progress: 0,
+            reward_item_id: "iron_skin_tonic".to_string(),
+            reward_qty: 1,
+            completed: false,
+            constraints: vec![ContractConstraint::TimeLimit {
+                start_turn: 0,
+                max_turns: 2,
+            }],
+            failed: true,
+            failure_reason: Some("time limit exceeded".to_string()),
+        });
+
+        let snapshot = game.snapshot();
+        let contract = snapshot.side_contract.expect("side contract view");
+
+        assert_eq!(contract.status_text, "已失败");
+        assert_eq!(
+            contract.failure_reason,
+            Some("time limit exceeded".to_string())
+        );
+        assert_eq!(contract.constraint_lines, vec!["剩余: 已超时".to_string()]);
     }
 }

@@ -65,6 +65,9 @@ pub struct SideContractView {
     pub progress_text: String,
     pub reward_text: String,
     pub completed: bool,
+    pub status_text: String,
+    pub constraint_lines: Vec<String>,
+    pub failure_reason: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -270,16 +273,24 @@ fn render_sidebar(frame: &mut Frame<'_>, area: Rect, snapshot: &UiSnapshot) {
 
 fn build_side_contract_lines(snapshot: &UiSnapshot) -> Vec<String> {
     match &snapshot.side_contract {
-        Some(contract) => vec![
-            format!("合约: {}", contract.name),
-            format!("目标: {}", contract.objective),
-            if contract.completed {
-                "进度: 已完成".to_string()
-            } else {
-                format!("进度: {}", contract.progress_text)
-            },
-            format!("奖励: {}", contract.reward_text),
-        ],
+        Some(contract) => {
+            let mut lines = vec![
+                format!("合约: {}", contract.name),
+                format!("目标: {}", contract.objective),
+                if contract.completed {
+                    "进度: 已完成".to_string()
+                } else {
+                    format!("进度: {}", contract.progress_text)
+                },
+                format!("状态: {}", contract.status_text),
+            ];
+            lines.extend(contract.constraint_lines.iter().cloned());
+            lines.push(format!("奖励: {}", contract.reward_text));
+            if let Some(reason) = &contract.failure_reason {
+                lines.push(format!("失败: {reason}"));
+            }
+            lines
+        }
         None => vec!["暂无支线合约".to_string(), "继续推进主线投递".to_string()],
     }
 }
@@ -512,6 +523,9 @@ mod tests {
             progress_text: "1/2".to_string(),
             reward_text: "铁肤药剂 x1".to_string(),
             completed: false,
+            status_text: "进行中".to_string(),
+            constraint_lines: vec!["剩余: 8 回合".to_string(), "潜行: 未暴露".to_string()],
+            failure_reason: None,
         });
 
         let lines = build_side_contract_lines(&snapshot);
@@ -522,8 +536,32 @@ mod tests {
                 "合约: 收集补给".to_string(),
                 "目标: 收集 治疗药水".to_string(),
                 "进度: 1/2".to_string(),
+                "状态: 进行中".to_string(),
+                "剩余: 8 回合".to_string(),
+                "潜行: 未暴露".to_string(),
                 "奖励: 铁肤药剂 x1".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn side_contract_panel_lines_should_include_failure_reason() {
+        let mut snapshot = build_snapshot();
+        snapshot.side_contract = Some(SideContractView {
+            name: "限时补给".to_string(),
+            objective: "收集 治疗药水".to_string(),
+            progress_text: "0/1".to_string(),
+            reward_text: "铁肤药剂 x1".to_string(),
+            completed: false,
+            status_text: "已失败".to_string(),
+            constraint_lines: vec!["剩余: 已超时".to_string()],
+            failure_reason: Some("time limit exceeded".to_string()),
+        });
+
+        let lines = build_side_contract_lines(&snapshot);
+
+        assert!(lines.contains(&"状态: 已失败".to_string()));
+        assert!(lines.contains(&"剩余: 已超时".to_string()));
+        assert!(lines.contains(&"失败: time limit exceeded".to_string()));
     }
 }

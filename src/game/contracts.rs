@@ -25,17 +25,36 @@ impl SideContract {
     }
 
     pub(super) fn remaining_turns(&self, current_turn: u32) -> Option<i32> {
-        self.constraints.iter().find_map(|constraint| match constraint {
-            ContractConstraint::TimeLimit {
-                start_turn,
-                max_turns,
-            } => Some(*max_turns as i32 - current_turn.saturating_sub(*start_turn) as i32),
-            ContractConstraint::Stealth { .. } => None,
-        })
+        self.constraints
+            .iter()
+            .find_map(|constraint| match constraint {
+                ContractConstraint::TimeLimit {
+                    start_turn,
+                    max_turns,
+                } => Some(*max_turns as i32 - current_turn.saturating_sub(*start_turn) as i32),
+                ContractConstraint::Stealth { .. } => None,
+            })
     }
 }
 
 impl Game {
+    fn generated_collect_contract_constraints(&mut self) -> Vec<ContractConstraint> {
+        match self.rng.random_range(0..3) {
+            0 => vec![ContractConstraint::TimeLimit {
+                start_turn: self.turn,
+                max_turns: 8,
+            }],
+            1 => vec![ContractConstraint::Stealth { exposed: false }],
+            _ => vec![
+                ContractConstraint::TimeLimit {
+                    start_turn: self.turn,
+                    max_turns: 10,
+                },
+                ContractConstraint::Stealth { exposed: false },
+            ],
+        }
+    }
+
     pub(super) fn ensure_side_contract(&mut self, announce: bool) {
         if self.side_contract.is_some() {
             return;
@@ -64,7 +83,7 @@ impl Game {
                 reward_item_id: "iron_skin_tonic".to_string(),
                 reward_qty: 1,
                 completed: false,
-                constraints: Vec::new(),
+                constraints: self.generated_collect_contract_constraints(),
                 failed: false,
                 failure_reason: None,
             }
@@ -129,12 +148,48 @@ impl Game {
         self.side_contract.as_ref().map(|contract| {
             let target = contract.target();
             let progress = contract.progress.min(target);
+            let status_text = if contract.failed {
+                "已失败".to_string()
+            } else if contract.completed {
+                "已完成".to_string()
+            } else {
+                "进行中".to_string()
+            };
+            let mut constraint_lines = Vec::new();
+            if contract.has_time_limit()
+                && let Some(remaining) = contract.remaining_turns(self.turn)
+            {
+                if remaining < 0 {
+                    constraint_lines.push("剩余: 已超时".to_string());
+                } else {
+                    constraint_lines.push(format!("剩余: {remaining} 回合"));
+                }
+            }
+            if contract.has_stealth_requirement()
+                && let Some(exposed) =
+                    contract
+                        .constraints
+                        .iter()
+                        .find_map(|constraint| match constraint {
+                            ContractConstraint::Stealth { exposed } => Some(*exposed),
+                            ContractConstraint::TimeLimit { .. } => None,
+                        })
+            {
+                constraint_lines.push(if exposed {
+                    "潜行: 已失败".to_string()
+                } else {
+                    "潜行: 未暴露".to_string()
+                });
+            }
             SideContractView {
                 name: contract.name.clone(),
                 objective: self.side_contract_objective_text(contract),
                 progress_text: format!("{progress}/{target}"),
                 reward_text: self.side_contract_reward_text(contract),
                 completed: contract.completed,
+                status_text,
+                constraint_lines,
+                failure_reason: contract.failure_reason.clone(),
             }
         })
     }
@@ -270,7 +325,9 @@ impl Game {
                 return;
             }
             for constraint in &mut contract.constraints {
-                if let ContractConstraint::Stealth { exposed } = constraint && !*exposed {
+                if let ContractConstraint::Stealth { exposed } = constraint
+                    && !*exposed
+                {
                     *exposed = true;
                     should_fail = true;
                 }
@@ -456,7 +513,10 @@ mod tests {
         let contract = game.side_contract.as_ref().expect("contract");
         assert!(contract.failed);
         assert!(!contract.completed);
-        assert_eq!(contract.failure_reason.as_deref(), Some("time limit exceeded"));
+        assert_eq!(
+            contract.failure_reason.as_deref(),
+            Some("time limit exceeded")
+        );
     }
 
     #[test]
@@ -553,6 +613,49 @@ mod tests {
             contract.constraints.first(),
             Some(ContractConstraint::Stealth { exposed: true })
         ));
+    }
+
+    #[test]
+    fn generated_side_contract_should_include_supported_constraints() {
+        let mut game = build_test_game(85);
+        game.monsters.clear();
+
+        let mut saw_time_limit = false;
+        let mut saw_stealth = false;
+        let mut saw_dual = false;
+
+        for _ in 0..256 {
+            game.side_contract = None;
+            game.ensure_side_contract(false);
+
+            let contract = game.side_contract.as_ref().expect("contract");
+            if !matches!(contract.objective, ContractObjective::CollectItem { .. }) {
+                continue;
+            }
+
+            let has_time_limit = contract.has_time_limit();
+            let has_stealth = contract.has_stealth_requirement();
+            saw_time_limit |= has_time_limit;
+            saw_stealth |= has_stealth;
+            saw_dual |= has_time_limit && has_stealth;
+
+            if saw_time_limit && saw_stealth && saw_dual {
+                break;
+            }
+        }
+
+        assert!(
+            saw_time_limit,
+            "expected generated collect contract with time limit"
+        );
+        assert!(
+            saw_stealth,
+            "expected generated collect contract with stealth"
+        );
+        assert!(
+            saw_dual,
+            "expected generated collect contract with both constraints"
+        );
     }
 
     #[test]

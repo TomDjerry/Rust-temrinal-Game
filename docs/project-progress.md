@@ -58,6 +58,8 @@
 - [x] 支线合约持久化：存档/读档可恢复合约状态（旧存档自动补默认合约）
 - [x] 支线合约日志：开局显示合约进度，击杀/收集时更新进度并记录完成奖励
 - [x] 支线合约最小 UI 面板：侧栏新增“合约”区块，显示名称、目标、进度与奖励预览
+- [x] 支线合约进阶：`Collect` 合约支持 `time_limit / stealth / dual-constraint` 约束生成，失败后停止进度与奖励
+- [x] 支线合约面板增强：显示状态、约束明细与失败原因，并与 AI 警戒/回合推进联动
 - [x] Help 增强：补充 ATK/DEF/CRIT/EVA/PEN/RES 属性说明
 - [x] 背包属性标注：装备/消耗品显示具体加成与效果说明
 - [x] 运行时重构阶段 1：`game` 按 `actions/ai/contracts/inventory/save/snapshot/util` 拆分，降低 `mod.rs` 复杂度
@@ -66,7 +68,6 @@
 
 ## 进行中（In Progress）
 - [ ] 更完整的物品体系（装备词条扩展阶段 3：元素抗性/状态抗性等）
-- [ ] 支线合约系统进阶（`time_limit/stealth` 目标、面板增强与更多状态提示）
 
 ## 待实现（Todo）
 - [ ] 环境交互（门/锁/陷阱/噪音传播）
@@ -80,12 +81,12 @@
 - 构建：`cargo build`
 
 ## 本次验证记录
-- `cargo test`：47/47 通过
+- `cargo test`：57/57 通过
 - `cargo clippy --all-targets --all-features -- -D warnings`：通过
 - `cargo build`：通过
 - `cargo fmt`：通过
 
 ## 下次续开发建议入口
 1. 装备词条阶段 3：元素抗性/状态抗性并接入效果结算。
-2. 基于新的运行时拆分继续补 `time_limit/stealth` 合约目标，减少 `Game` 主文件再次膨胀。
+2. 扩展更多支线约束与目标组合（如位置、击杀类型、连击/无伤等），继续复用当前约束层。
 3. 继续迁移剩余测试到更贴近模块的位置，逐步缩小 `src/game/mod.rs` 中的测试体量。

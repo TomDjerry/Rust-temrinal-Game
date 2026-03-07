@@ -126,9 +126,10 @@ Latest verified status is tracked in `docs/project-progress.md`.
 
 The runtime was also refactored into smaller modules so future features can land with lower risk.
 
+Side contracts now support `Kill/Collect` objectives plus advanced `time-limit` and `stealth` constraints, including failure states and sidebar status details.
+
 ## Roadmap (Next)
 
-- Side contract system (kill/collect/time-limit/stealth)
 - Environment interactions (doors/locks/traps/noise propagation)
 - Ranged combat and skill systems
 - More automated regression tests
