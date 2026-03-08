@@ -178,48 +178,48 @@ fn render_sidebar(frame: &mut Frame<'_>, area: Rect, snapshot: &UiSnapshot) {
         .split(area);
 
     let state_lines = vec![
-        Line::from(format!("回合: {}", snapshot.turn)),
-        Line::from(format!("HP: {}/{}", snapshot.hp.max(0), snapshot.max_hp)),
-        Line::from(format!("ATK: {}  DEF: {}", snapshot.atk, snapshot.def)),
+        Line::from(format!("回合：{}", snapshot.turn)),
+        Line::from(format!("HP：{}/{}", snapshot.hp.max(0), snapshot.max_hp)),
+        Line::from(format!("ATK：{}  DEF：{}", snapshot.atk, snapshot.def)),
         Line::from(format!(
-            "CRIT: {}%  EVA: {}%",
+            "CRIT：{}%  EVA：{}%",
             snapshot.crit_chance, snapshot.dodge_chance
         )),
         Line::from(format!(
-            "PEN: {}  RES: {}%",
+            "PEN：{}  RES：{}%",
             snapshot.armor_penetration, snapshot.damage_reduction_pct
         )),
-        Line::from(format!("药水: {}", snapshot.potions)),
+        Line::from(format!("药水：{}", snapshot.potions)),
         Line::from(format!(
-            "武器: {}",
+            "武器：{}",
             snapshot.equipped_weapon.as_deref().unwrap_or("-")
         )),
         Line::from(format!(
-            "护甲: {}",
+            "护甲：{}",
             snapshot.equipped_armor.as_deref().unwrap_or("-")
         )),
         Line::from(format!(
-            "饰品: {}",
+            "饰品：{}",
             snapshot.equipped_accessory.as_deref().unwrap_or("-")
         )),
         Line::from(if snapshot.won {
-            "状态: 已完成投递".to_string()
+            "状态：已完成投递".to_string()
         } else if !snapshot.alive {
-            "状态: 已死亡".to_string()
+            "状态：已死亡".to_string()
         } else {
-            "状态: 进行中".to_string()
+            "状态：进行中".to_string()
         }),
     ];
 
     let quest_lines = vec![
         Line::from("主线目标"),
         Line::from(if snapshot.has_package {
-            "1) 已拿包裹，前往 E"
+            "1) 已拿到包裹，前往 E"
         } else {
             "1) 寻找包裹 P"
         }),
         Line::from(format!(
-            "2) 必需任务物: {}/{}",
+            "2) 必需任务物：{}/{}",
             snapshot.required_quest_items_collected, snapshot.required_quest_items_total
         )),
         Line::from(if snapshot.won {
@@ -281,19 +281,19 @@ fn build_side_contract_lines(snapshot: &UiSnapshot) -> Vec<String> {
     match &snapshot.side_contract {
         Some(contract) => {
             let mut lines = vec![
-                format!("合约: {}", contract.name),
-                format!("目标: {}", contract.objective),
+                format!("合约：{}", contract.name),
+                format!("目标：{}", contract.objective),
                 if contract.completed {
-                    "进度: 已完成".to_string()
+                    "进度：已完成".to_string()
                 } else {
-                    format!("进度: {}", contract.progress_text)
+                    format!("进度：{}", contract.progress_text)
                 },
-                format!("状态: {}", contract.status_text),
+                format!("状态：{}", contract.status_text),
             ];
             lines.extend(contract.constraint_lines.iter().cloned());
-            lines.push(format!("奖励: {}", contract.reward_text));
+            lines.push(format!("奖励：{}", contract.reward_text));
             if let Some(reason) = &contract.failure_reason {
-                lines.push(format!("失败: {reason}"));
+                lines.push(format!("失败：{reason}"));
             }
             lines
         }
@@ -328,14 +328,14 @@ fn render_inventory_popup(frame: &mut Frame<'_>, snapshot: &UiSnapshot) {
                 item.name, item.qty, equipped_tag, ops
             )));
             if !item.attr_desc.is_empty() {
-                lines.push(Line::from(format!("    属性: {}", item.attr_desc)));
+                lines.push(Line::from(format!("    属性：{}", item.attr_desc)));
             }
         }
     }
 
     lines.push(Line::from(""));
     lines.push(Line::from("w/s 或 ↑/↓ 选择条目"));
-    lines.push(Line::from("Enter 使用/装备, r 卸下, x 丢弃"));
+    lines.push(Line::from("Enter 使用/装备，r 卸下，x 丢弃"));
     lines.push(Line::from("i 或 Esc 关闭"));
 
     frame.render_widget(
@@ -377,6 +377,7 @@ fn render_log_popup(frame: &mut Frame<'_>, snapshot: &UiSnapshot) {
         rect,
     );
 }
+
 fn render_help_popup(frame: &mut Frame<'_>) {
     let rect = centered_rect(70, 60, frame.area());
     frame.render_widget(Clear, rect);
@@ -419,6 +420,7 @@ fn render_help_popup(frame: &mut Frame<'_>) {
         rect,
     );
 }
+
 fn build_map_lines(rows: &[Vec<MapCell>], width: usize, height: usize) -> Vec<Line<'static>> {
     let mut lines = Vec::with_capacity(height);
     for y in 0..height {
@@ -432,53 +434,32 @@ fn build_map_lines(rows: &[Vec<MapCell>], width: usize, height: usize) -> Vec<Li
                     ch: ' ',
                     tone: MapTone::Hidden,
                 });
-            spans.push(Span::styled(cell.ch.to_string(), style_for_cell(cell)));
+            let style = match cell.tone {
+                MapTone::Hidden => Style::default().fg(Color::Black),
+                MapTone::Explored => Style::default().fg(Color::DarkGray),
+                MapTone::Visible => Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            };
+            spans.push(Span::styled(cell.ch.to_string(), style));
         }
         lines.push(Line::from(spans));
     }
     lines
 }
 
-fn style_for_cell(cell: MapCell) -> Style {
-    match cell.tone {
-        MapTone::Hidden => Style::default(),
-        MapTone::Explored => Style::default().fg(Color::DarkGray),
-        MapTone::Visible => {
-            if cell.ch == '@' {
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD)
-            } else if cell.ch == 'E' {
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
-            } else if cell.ch == '#' {
-                Style::default().fg(Color::Gray)
-            } else if cell.ch == '.' {
-                Style::default().fg(Color::White)
-            } else if cell.ch == '!' || cell.ch == 'P' || cell.ch == 'D' || cell.ch == 'B' {
-                Style::default().fg(Color::Green)
-            } else if cell.ch.is_ascii_lowercase() {
-                Style::default().fg(Color::Red)
-            } else {
-                Style::default().fg(Color::White)
-            }
-        }
-    }
-}
-
 fn log_limit(log_area_height: u16) -> usize {
     if log_area_height >= 14 {
         10
     } else if log_area_height >= 10 {
-        8
-    } else {
         6
+    } else {
+        4
     }
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let vertical = Layout::default()
+    let popup_layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Percentage((100 - percent_y) / 2),
@@ -494,7 +475,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
             Constraint::Percentage(percent_x),
             Constraint::Percentage((100 - percent_x) / 2),
         ])
-        .split(vertical[1])[1]
+        .split(popup_layout[1])[1]
 }
 
 #[cfg(test)]
@@ -566,7 +547,7 @@ mod tests {
             reward_text: "铁肤药剂 x1".to_string(),
             completed: false,
             status_text: "进行中".to_string(),
-            constraint_lines: vec!["剩余: 8 回合".to_string(), "潜行: 未暴露".to_string()],
+            constraint_lines: vec!["剩余：8 回合".to_string(), "潜行：未暴露".to_string()],
             failure_reason: None,
         });
 
@@ -575,13 +556,13 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                "合约: 收集补给".to_string(),
-                "目标: 收集 治疗药水".to_string(),
-                "进度: 1/2".to_string(),
-                "状态: 进行中".to_string(),
-                "剩余: 8 回合".to_string(),
-                "潜行: 未暴露".to_string(),
-                "奖励: 铁肤药剂 x1".to_string(),
+                "合约：收集补给".to_string(),
+                "目标：收集 治疗药水".to_string(),
+                "进度：1/2".to_string(),
+                "状态：进行中".to_string(),
+                "剩余：8 回合".to_string(),
+                "潜行：未暴露".to_string(),
+                "奖励：铁肤药剂 x1".to_string(),
             ]
         );
     }
@@ -596,14 +577,14 @@ mod tests {
             reward_text: "铁肤药剂 x1".to_string(),
             completed: false,
             status_text: "已失败".to_string(),
-            constraint_lines: vec!["剩余: 已超时".to_string()],
+            constraint_lines: vec!["剩余：已超时".to_string()],
             failure_reason: Some("超过回合限制".to_string()),
         });
 
         let lines = build_side_contract_lines(&snapshot);
 
-        assert!(lines.contains(&"状态: 已失败".to_string()));
-        assert!(lines.contains(&"剩余: 已超时".to_string()));
-        assert!(lines.contains(&"失败: 超过回合限制".to_string()));
+        assert!(lines.contains(&"状态：已失败".to_string()));
+        assert!(lines.contains(&"剩余：已超时".to_string()));
+        assert!(lines.contains(&"失败：超过回合限制".to_string()));
     }
 }
