@@ -37,6 +37,10 @@ To win, you must:
 - Consumables:
   - healing potion
   - temporary buff consumables with duration
+- Environment interactions:
+  - closed/open doors affect movement and vision
+  - `c` closes an adjacent open door
+  - one-shot traps deal fixed damage and create alert noise
 - Save/load:
   - `F2` quick save
   - `F3` quick load
@@ -47,6 +51,7 @@ To win, you must:
 - `g`: pick up item on current tile
 - `u`: use healing potion
 - `.`: wait one turn
+- `c`: close an adjacent open door
 - `i`: open/close inventory
 - `?`: open/close help
 - `Enter`: use/equip selected inventory item
@@ -128,8 +133,10 @@ The runtime was also refactored into smaller modules so future features can land
 
 Side contracts now support `Kill/Collect` objectives plus advanced `time-limit` and `stealth` constraints, including failure states and sidebar status details.
 
+Environment interactions now include open/close doors plus one-shot traps that feed into the existing noise-driven alert pipeline.
+
 ## Roadmap (Next)
 
-- Environment interactions (doors/locks/traps/noise propagation)
+- Environment interaction follow-ups (locks, hidden traps, richer noise propagation)
 - Ranged combat and skill systems
 - More automated regression tests

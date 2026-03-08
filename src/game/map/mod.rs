@@ -29,6 +29,8 @@ impl Pos {
 pub enum TileType {
     Wall,
     Floor,
+    ClosedDoor,
+    OpenDoor,
     Exit,
 }
 
@@ -40,11 +42,14 @@ pub struct Tile {
 
 impl Tile {
     pub fn is_walkable(self) -> bool {
-        !matches!(self.tile_type, TileType::Wall)
+        matches!(
+            self.tile_type,
+            TileType::Floor | TileType::OpenDoor | TileType::Exit
+        )
     }
 
     pub fn blocks_vision(self) -> bool {
-        matches!(self.tile_type, TileType::Wall)
+        matches!(self.tile_type, TileType::Wall | TileType::ClosedDoor)
     }
 }
 
@@ -116,6 +121,8 @@ impl Map {
         match tile.tile_type {
             TileType::Wall => '#',
             TileType::Floor => '.',
+            TileType::ClosedDoor => '+',
+            TileType::OpenDoor => '/',
             TileType::Exit => 'E',
         }
     }
@@ -350,5 +357,20 @@ mod tests {
         assert_eq!(layout_a.package_pos, layout_b.package_pos);
         assert_eq!(layout_a.exit_pos, layout_b.exit_pos);
         assert_eq!(kinds_a, kinds_b);
+    }
+    #[test]
+    fn closed_door_should_block_walk_and_vision() {
+        let mut map = Map::new(5, 5);
+        map.set_tile_type(Pos::new(2, 1), TileType::Floor);
+        map.set_tile_type(Pos::new(2, 2), TileType::ClosedDoor);
+        map.set_tile_type(Pos::new(2, 3), TileType::Floor);
+
+        assert!(!map.is_walkable(Pos::new(2, 2)));
+        assert!(map.tile(Pos::new(2, 2)).expect("tile").blocks_vision());
+
+        map.set_tile_type(Pos::new(2, 2), TileType::OpenDoor);
+
+        assert!(map.is_walkable(Pos::new(2, 2)));
+        assert!(!map.tile(Pos::new(2, 2)).expect("tile").blocks_vision());
     }
 }

@@ -345,6 +345,7 @@ fn render_help_popup(frame: &mut Frame<'_>) {
     frame.render_widget(Clear, rect);
 
     let lines = vec![
+        Line::from("c: close adjacent open door"),
         Line::from("帮助"),
         Line::from(""),
         Line::from("WASD / 方向键: 移动"),

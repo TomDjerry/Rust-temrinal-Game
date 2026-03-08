@@ -9,6 +9,7 @@ impl Game {
             | Action::InventoryUse
             | Action::InventoryDrop
             | Action::InventoryUnequip => Some(NOISE_RADIUS_INTERACT),
+            Action::CloseDoor => Some(NOISE_RADIUS_DOOR),
             Action::Wait
             | Action::Save
             | Action::Load
@@ -84,6 +85,7 @@ impl Game {
             Action::Move(dx, dy) => consumed_turn = self.try_move_player(dx, dy),
             Action::Pickup => consumed_turn = self.try_pickup(),
             Action::UsePotion => consumed_turn = self.try_use_potion(),
+            Action::CloseDoor => consumed_turn = self.try_close_adjacent_door(),
             Action::Wait => {
                 self.push_log("你选择等待一回合".to_string());
                 consumed_turn = true;
@@ -98,7 +100,9 @@ impl Game {
         }
 
         if consumed_turn {
-            self.pending_noise = self.noise_from_action(action);
+            if let Some(noise) = self.noise_from_action(action) {
+                self.queue_noise(noise.pos, noise.radius);
+            }
             self.finish_player_turn();
         }
     }
@@ -109,6 +113,54 @@ impl Game {
             pos: self.player.pos,
             radius,
         })
+    }
+
+    fn queue_noise(&mut self, pos: Pos, radius: i32) {
+        match self.pending_noise {
+            Some(existing) if existing.radius >= radius => {}
+            _ => self.pending_noise = Some(NoiseEvent { pos, radius }),
+        }
+    }
+
+    fn try_close_adjacent_door(&mut self) -> bool {
+        let dirs = [(0, -1), (1, 0), (0, 1), (-1, 0)];
+        for (dx, dy) in dirs {
+            let pos = Pos::new(self.player.pos.x + dx, self.player.pos.y + dy);
+            if self
+                .monsters
+                .iter()
+                .any(|monster| monster.pos == pos && monster.stats.is_alive())
+            {
+                continue;
+            }
+            if self
+                .map
+                .tile(pos)
+                .is_some_and(|tile| matches!(tile.tile_type, crate::game::map::TileType::OpenDoor))
+            {
+                self.map
+                    .set_tile_type(pos, crate::game::map::TileType::ClosedDoor);
+                self.push_log("door closed".to_string());
+                return true;
+            }
+        }
+        self.push_log("no open door nearby".to_string());
+        false
+    }
+
+    pub(in crate::game) fn trigger_trap_at_player_pos(&mut self) {
+        let Some(index) = self
+            .traps
+            .iter()
+            .position(|trap| trap.pos == self.player.pos && !trap.triggered)
+        else {
+            return;
+        };
+        let damage = self.traps[index].damage;
+        self.traps[index].triggered = true;
+        self.player.stats.hp -= damage;
+        self.push_log(format!("trap triggered: {damage} damage"));
+        self.queue_noise(self.player.pos, NOISE_RADIUS_TRAP);
     }
 
     fn finish_player_turn(&mut self) {
@@ -128,7 +180,9 @@ impl Game {
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_support::{build_test_game, open_floor_map, test_monster};
     use super::super::*;
+    use crate::game::map::TileType;
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 
     #[test]
@@ -212,5 +266,168 @@ mod tests {
             action_from_key_event(r),
             Some(Action::InventoryUnequip)
         ));
+    }
+    #[test]
+    fn moving_into_closed_door_should_open_it_without_moving_player() {
+        let mut game = build_test_game(301);
+        game.monsters.clear();
+        game.ground_items.clear();
+        game.map = open_floor_map(8, 8, 1..=6, 1..=6);
+        game.player.pos = Pos::new(2, 2);
+        game.map.set_tile_type(Pos::new(3, 2), TileType::ClosedDoor);
+        game.recompute_fov();
+        let turn_before = game.turn;
+
+        game.apply_action(Action::Move(1, 0));
+
+        assert_eq!(game.player.pos, Pos::new(2, 2));
+        assert_eq!(game.turn, turn_before + 1);
+        assert_eq!(
+            game.map.tile(Pos::new(3, 2)).expect("door").tile_type,
+            TileType::OpenDoor
+        );
+    }
+
+    #[test]
+    fn trap_should_trigger_once_and_alert_nearby_monster() {
+        let mut game = build_test_game(302);
+        game.monsters.clear();
+        game.ground_items.clear();
+        game.map = open_floor_map(10, 8, 1..=8, 1..=6);
+        game.player.pos = Pos::new(2, 2);
+        game.traps = vec![Trap {
+            pos: Pos::new(3, 2),
+            damage: 3,
+            triggered: false,
+        }];
+        game.monsters.push(test_monster(
+            "watcher",
+            "Watcher",
+            'w',
+            Pos::new(5, 2),
+            Stats {
+                hp: 6,
+                max_hp: 6,
+                atk: 2,
+                def: 0,
+            },
+        ));
+        let hp_before = game.player.stats.hp;
+
+        game.apply_action(Action::Move(1, 0));
+
+        assert_eq!(game.player.pos, Pos::new(3, 2));
+        assert_eq!(game.player.stats.hp, hp_before - 3);
+        assert!(game.traps[0].triggered);
+        assert!(matches!(
+            game.monsters[0].ai_state,
+            MonsterAiState::Alert { .. }
+        ));
+
+        let hp_after_first = game.player.stats.hp;
+        game.apply_action(Action::Move(-1, 0));
+        game.apply_action(Action::Move(1, 0));
+        assert_eq!(game.player.stats.hp, hp_after_first);
+    }
+
+    #[test]
+    fn should_map_close_door_key() {
+        let close = KeyEvent {
+            code: KeyCode::Char('c'),
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        };
+
+        assert!(matches!(
+            action_from_key_event(close),
+            Some(Action::CloseDoor)
+        ));
+    }
+
+    #[test]
+    fn close_door_action_should_close_adjacent_open_door() {
+        let mut game = build_test_game(304);
+        game.monsters.clear();
+        game.ground_items.clear();
+        game.map = open_floor_map(8, 8, 1..=6, 1..=6);
+        game.player.pos = Pos::new(2, 2);
+        game.map.set_tile_type(Pos::new(3, 2), TileType::OpenDoor);
+        let turn_before = game.turn;
+
+        game.apply_action(Action::CloseDoor);
+
+        assert_eq!(game.turn, turn_before + 1);
+        assert_eq!(
+            game.map.tile(Pos::new(3, 2)).expect("door").tile_type,
+            TileType::ClosedDoor
+        );
+    }
+
+    #[test]
+    fn close_door_without_adjacent_open_door_should_not_consume_turn() {
+        let mut game = build_test_game(305);
+        game.monsters.clear();
+        game.ground_items.clear();
+        game.map = open_floor_map(8, 8, 1..=6, 1..=6);
+        game.player.pos = Pos::new(2, 2);
+        let turn_before = game.turn;
+
+        game.apply_action(Action::CloseDoor);
+
+        assert_eq!(game.turn, turn_before);
+        assert_eq!(
+            game.log.back().map(String::as_str),
+            Some("no open door nearby")
+        );
+    }
+
+    #[test]
+    fn trap_noise_should_fail_stealth_contract_when_it_alerts_monster() {
+        let mut game = build_test_game(306);
+        game.monsters.clear();
+        game.ground_items.clear();
+        game.map = open_floor_map(10, 8, 1..=8, 1..=6);
+        game.player.pos = Pos::new(2, 2);
+        game.traps = vec![Trap {
+            pos: Pos::new(3, 2),
+            damage: 3,
+            triggered: false,
+        }];
+        game.side_contract = Some(SideContract {
+            name: "stealth collect".to_string(),
+            objective: ContractObjective::CollectItem {
+                item_id: "healing_potion".to_string(),
+                target: 1,
+            },
+            progress: 0,
+            reward_item_id: "battle_tonic".to_string(),
+            reward_qty: 1,
+            completed: false,
+            constraints: vec![ContractConstraint::Stealth { exposed: false }],
+            failed: false,
+            failure_reason: None,
+        });
+        game.monsters.push(test_monster(
+            "watcher",
+            "Watcher",
+            'w',
+            Pos::new(7, 2),
+            Stats {
+                hp: 6,
+                max_hp: 6,
+                atk: 2,
+                def: 0,
+            },
+        ));
+
+        game.apply_action(Action::Move(1, 0));
+
+        assert!(game.traps[0].triggered);
+        assert!(matches!(
+            game.monsters[0].ai_state,
+            MonsterAiState::Alert { .. }
+        ));
+        assert!(game.side_contract.as_ref().expect("contract").failed);
     }
 }

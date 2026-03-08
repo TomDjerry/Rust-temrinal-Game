@@ -179,6 +179,17 @@ impl Game {
                 };
             }
 
+            if self
+                .traps
+                .iter()
+                .any(|trap| trap.pos == pos && !trap.triggered)
+            {
+                return MapCell {
+                    ch: '^',
+                    tone: MapTone::Visible,
+                };
+            }
+
             return MapCell {
                 ch: self.map.base_glyph(pos),
                 tone: MapTone::Visible,
@@ -194,8 +205,9 @@ impl Game {
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_support::build_test_game;
+    use super::super::test_support::{build_test_game, open_floor_map};
     use super::super::*;
+    use crate::game::map::TileType;
 
     #[test]
     fn inventory_item_view_should_describe_equipment_bonuses() {
@@ -312,5 +324,25 @@ mod tests {
             Some("time limit exceeded".to_string())
         );
         assert_eq!(contract.constraint_lines, vec!["剩余: 已超时".to_string()]);
+    }
+    #[test]
+    fn snapshot_should_render_door_and_trap_tiles() {
+        let mut game = build_test_game(303);
+        game.monsters.clear();
+        game.ground_items.clear();
+        game.map = open_floor_map(8, 8, 1..=6, 1..=6);
+        game.player.pos = Pos::new(2, 2);
+        game.map.set_tile_type(Pos::new(3, 2), TileType::ClosedDoor);
+        game.traps = vec![Trap {
+            pos: Pos::new(2, 3),
+            damage: 3,
+            triggered: false,
+        }];
+        game.recompute_fov();
+
+        let snapshot = game.snapshot();
+
+        assert_eq!(snapshot.map_rows[2][3].ch, '+');
+        assert_eq!(snapshot.map_rows[3][2].ch, '^');
     }
 }

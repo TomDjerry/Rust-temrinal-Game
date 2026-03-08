@@ -37,6 +37,9 @@ const LOG_CAPACITY: usize = 60;
 const SAVE_FILE_PATH: &str = "saves/save1.json";
 const NOISE_RADIUS_MOVE: i32 = 6;
 const NOISE_RADIUS_INTERACT: i32 = 4;
+const NOISE_RADIUS_DOOR: i32 = 6;
+const NOISE_RADIUS_TRAP: i32 = 8;
+const TRAP_DAMAGE: i32 = 3;
 const ALERT_TURNS: u8 = 4;
 const FLEE_TURNS: u8 = 3;
 
@@ -158,6 +161,14 @@ struct GroundItem {
     pos: Pos,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Trap {
+    pos: Pos,
+    damage: i32,
+    #[serde(default)]
+    triggered: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(tag = "state", rename_all = "snake_case")]
 enum MonsterAiState {
@@ -221,6 +232,7 @@ struct Game {
     player: Player,
     monsters: Vec<Monster>,
     ground_items: Vec<GroundItem>,
+    traps: Vec<Trap>,
     visible: HashSet<Pos>,
     log: VecDeque<String>,
     turn: u32,
@@ -244,6 +256,7 @@ enum Action {
     InventoryUse,
     InventoryDrop,
     InventoryUnequip,
+    CloseDoor,
     Save,
     Load,
     ToggleInventory,
@@ -344,6 +357,7 @@ fn action_from_key_event(key_event: KeyEvent) -> Option<Action> {
         KeyCode::Enter => Action::InventoryUse,
         KeyCode::Char('x') => Action::InventoryDrop,
         KeyCode::Char('r') => Action::InventoryUnequip,
+        KeyCode::Char('c') => Action::CloseDoor,
         KeyCode::Char('.') => Action::Wait,
         KeyCode::F(2) => Action::Save,
         KeyCode::F(3) => Action::Load,
@@ -391,6 +405,7 @@ impl Game {
             player,
             monsters: Vec::new(),
             ground_items: Vec::new(),
+            traps: Vec::new(),
             visible: HashSet::new(),
             log: VecDeque::with_capacity(LOG_CAPACITY),
             turn: 0,
@@ -511,6 +526,66 @@ impl Game {
                 pos,
             });
         }
+
+        self.populate_environment(package_pos);
+    }
+
+    fn populate_environment(&mut self, package_pos: Pos) {
+        let mut blocked: HashSet<Pos> = HashSet::new();
+        blocked.insert(self.player.pos);
+        blocked.insert(self.exit_pos);
+        blocked.insert(package_pos);
+        for monster in &self.monsters {
+            blocked.insert(monster.pos);
+        }
+        for item in &self.ground_items {
+            blocked.insert(item.pos);
+        }
+
+        let mut door_candidates = Vec::new();
+        let mut trap_candidates = Vec::new();
+        for y in 1..(self.map.height - 1) {
+            for x in 1..(self.map.width - 1) {
+                let pos = Pos::new(x, y);
+                if blocked.contains(&pos) {
+                    continue;
+                }
+                let Some(tile) = self.map.tile(pos) else {
+                    continue;
+                };
+                if tile.tile_type != crate::game::map::TileType::Floor {
+                    continue;
+                }
+                let north = self.map.is_walkable(Pos::new(x, y - 1));
+                let south = self.map.is_walkable(Pos::new(x, y + 1));
+                let west = self.map.is_walkable(Pos::new(x - 1, y));
+                let east = self.map.is_walkable(Pos::new(x + 1, y));
+                let vertical_corridor = north && south && !west && !east;
+                let horizontal_corridor = west && east && !north && !south;
+                if vertical_corridor || horizontal_corridor {
+                    door_candidates.push(pos);
+                } else {
+                    trap_candidates.push(pos);
+                }
+            }
+        }
+
+        door_candidates.shuffle(&mut self.rng);
+        for pos in door_candidates.into_iter().take(4) {
+            self.map
+                .set_tile_type(pos, crate::game::map::TileType::ClosedDoor);
+            blocked.insert(pos);
+        }
+
+        trap_candidates.retain(|pos| !blocked.contains(pos));
+        trap_candidates.shuffle(&mut self.rng);
+        for pos in trap_candidates.into_iter().take(4) {
+            self.traps.push(Trap {
+                pos,
+                damage: TRAP_DAMAGE,
+                triggered: false,
+            });
+        }
     }
 
     fn roll_chance(&mut self, chance_percent: u8) -> bool {
@@ -562,13 +637,25 @@ impl Game {
             return true;
         }
 
+        if self
+            .map
+            .tile(target)
+            .is_some_and(|tile| matches!(tile.tile_type, crate::game::map::TileType::ClosedDoor))
+        {
+            self.map
+                .set_tile_type(target, crate::game::map::TileType::OpenDoor);
+            self.push_log("door opened".to_string());
+            return true;
+        }
+
         if !self.map.is_walkable(target) {
-            self.push_log("前方被阻挡".to_string());
+            self.push_log("blocked ahead".to_string());
             return false;
         }
 
         self.player.pos = target;
         self.try_auto_pickup_package();
+        self.trigger_trap_at_player_pos();
         true
     }
 

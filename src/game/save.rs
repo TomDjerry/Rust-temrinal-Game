@@ -14,6 +14,8 @@ pub(super) struct SaveState {
     player: Player,
     monsters: Vec<Monster>,
     ground_items: Vec<GroundItem>,
+    #[serde(default)]
+    traps: Vec<Trap>,
     turn: u32,
     won: bool,
     logs: Vec<String>,
@@ -32,6 +34,7 @@ impl SaveState {
             player: game.player.clone(),
             monsters: game.monsters.clone(),
             ground_items: game.ground_items.clone(),
+            traps: game.traps.clone(),
             turn: game.turn,
             won: game.won,
             logs: game.log.iter().cloned().collect(),
@@ -48,6 +51,7 @@ impl SaveState {
             player: self.player,
             monsters: self.monsters,
             ground_items: self.ground_items,
+            traps: self.traps,
             visible: HashSet::new(),
             log: VecDeque::from(self.logs),
             turn: self.turn,
@@ -162,5 +166,23 @@ mod tests {
         assert_eq!(restored.map.width, game.map.width);
         assert_eq!(restored.map.height, game.map.height);
         assert_eq!(restored.ui_mode, UiMode::Normal);
+    }
+
+    #[test]
+    fn save_state_roundtrip_should_restore_traps() {
+        let mut game = build_test_game(77);
+        game.traps = vec![Trap {
+            pos: Pos::new(4, 4),
+            damage: 3,
+            triggered: true,
+        }];
+
+        let save = SaveState::from_game(&game);
+        let restored = save.into_game(game.data.clone());
+
+        assert_eq!(restored.traps.len(), 1);
+        assert_eq!(restored.traps[0].pos, Pos::new(4, 4));
+        assert_eq!(restored.traps[0].damage, 3);
+        assert!(restored.traps[0].triggered);
     }
 }
