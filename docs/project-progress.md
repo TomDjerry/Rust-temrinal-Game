@@ -1,6 +1,6 @@
 ﻿# 项目进度台账（Dungeon Courier）
 
-最后更新：2026-03-08
+最后更新：2026-03-08（环境交互+运行时重构）
 
 ## 已实现（Done）
 - [x] 项目基础结构拆分：`game/mod/data/map/path/combat`
@@ -85,11 +85,19 @@
 - 测试：`cargo test`
 - 构建：`cargo build`
 
-## 本次验证记录
-- `cargo test`：66/66 通过
+## 本次验证记录（2026-03-08）
+- `cargo test`：69/69 通过
 - `cargo clippy --all-targets --all-features -- -D warnings`：通过
 - `cargo build`：通过
 - `cargo fmt`：通过
+
+### 本次变更摘要
+- 陷阱系统：一次性陷阱造成固定伤害（3点），触发后失效
+- 噪音系统：动作产生噪音，怪物可被噪音吸引进入 Alert 状态
+- 门系统：撞门自动开、显式关门（c键），关闭门阻挡移动与视线
+- 环境生成：随机在走廊放门（≤4）、开阔区域放陷阱（≤4）
+- BFS 路径算法：`bfs_next_step` / `bfs_distance`（预留怪物寻路）
+- 运行时重构：`game/mod.rs` 拆分为 actions/ai/contracts/inventory/save/snapshot/util
 
 ## 下次续开发建议入口
 1. 装备词条阶段 3：元素抗性/状态抗性并接入效果结算。
