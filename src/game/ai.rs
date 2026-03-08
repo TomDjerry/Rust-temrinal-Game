@@ -94,7 +94,7 @@ impl Game {
             {
                 if self.roll_chance(self.player_effective_dodge_chance()) {
                     self.push_log(format!(
-                        "你闪避了{}({})的攻击",
+                        "你闪避了 {}({}) 的攻击",
                         self.monsters[idx].name, self.monsters[idx].kind_id
                     ));
                     occupied.insert(self.monsters[idx].pos);
@@ -109,7 +109,7 @@ impl Game {
                 let reduced_damage = (damage * (100 - reduction_pct) / 100).max(1);
                 self.player.stats.hp -= reduced_damage;
                 self.push_log(format!(
-                    "{}({}) 命中你，造成{}伤害",
+                    "{}({}) 命中你，造成 {} 点伤害",
                     self.monsters[idx].name, self.monsters[idx].kind_id, reduced_damage
                 ));
                 if self.player.stats.hp <= 0 {

@@ -59,6 +59,7 @@ impl SaveState {
             won: self.won,
             quit: false,
             ui_mode: UiMode::Normal,
+            log_scroll: 0,
             inventory_selected: 0,
             data,
             pending_noise: None,

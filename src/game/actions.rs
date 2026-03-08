@@ -15,6 +15,7 @@ impl Game {
             | Action::Load
             | Action::ToggleInventory
             | Action::ToggleHelp
+            | Action::ToggleLog
             | Action::Escape
             | Action::Quit => None,
         }
@@ -28,8 +29,8 @@ impl Game {
             }
             Action::Save => {
                 match self.save_to_file(SAVE_FILE_PATH) {
-                    Ok(()) => self.push_log(format!("存档成功: {SAVE_FILE_PATH}")),
-                    Err(err) => self.push_log(format!("存档失败: {err:#}")),
+                    Ok(()) => self.push_log(format!("存档成功：{SAVE_FILE_PATH}")),
+                    Err(err) => self.push_log(format!("存档失败：{err:#}")),
                 }
                 return;
             }
@@ -37,10 +38,10 @@ impl Game {
                 let data = self.data.clone();
                 match Self::load_from_file(SAVE_FILE_PATH, data) {
                     Ok(mut loaded) => {
-                        loaded.push_log(format!("读档成功: {SAVE_FILE_PATH}"));
+                        loaded.push_log(format!("读档成功：{SAVE_FILE_PATH}"));
                         *self = loaded;
                     }
-                    Err(err) => self.push_log(format!("读档失败: {err:#}")),
+                    Err(err) => self.push_log(format!("读档失败：{err:#}")),
                 }
                 return;
             }
@@ -63,10 +64,26 @@ impl Game {
                 self.ui_mode = ui::transition_mode(self.ui_mode, '?');
                 return;
             }
+            Action::ToggleLog => {
+                self.ui_mode = ui::transition_mode(self.ui_mode, 'l');
+                if self.ui_mode == UiMode::Log {
+                    self.log_scroll = 0;
+                }
+                return;
+            }
             _ => {}
         }
 
         if self.ui_mode == UiMode::Help {
+            return;
+        }
+
+        if self.ui_mode == UiMode::Log {
+            match action {
+                Action::Move(0, -1) => self.scroll_log_older(1),
+                Action::Move(0, 1) => self.scroll_log_newer(1),
+                _ => {}
+            }
             return;
         }
 
@@ -95,6 +112,7 @@ impl Game {
             | Action::Load
             | Action::ToggleInventory
             | Action::ToggleHelp
+            | Action::ToggleLog
             | Action::Escape
             | Action::Quit => {}
         }
@@ -122,6 +140,15 @@ impl Game {
         }
     }
 
+    fn scroll_log_older(&mut self, amount: usize) {
+        let max_scroll = self.log.len().saturating_sub(1);
+        self.log_scroll = (self.log_scroll + amount).min(max_scroll);
+    }
+
+    fn scroll_log_newer(&mut self, amount: usize) {
+        self.log_scroll = self.log_scroll.saturating_sub(amount);
+    }
+
     fn try_close_adjacent_door(&mut self) -> bool {
         let dirs = [(0, -1), (1, 0), (0, 1), (-1, 0)];
         for (dx, dy) in dirs {
@@ -140,11 +167,11 @@ impl Game {
             {
                 self.map
                     .set_tile_type(pos, crate::game::map::TileType::ClosedDoor);
-                self.push_log("door closed".to_string());
+                self.push_log("你关上了门".to_string());
                 return true;
             }
         }
-        self.push_log("no open door nearby".to_string());
+        self.push_log("附近没有可关闭的门".to_string());
         false
     }
 
@@ -159,7 +186,7 @@ impl Game {
         let damage = self.traps[index].damage;
         self.traps[index].triggered = true;
         self.player.stats.hp -= damage;
-        self.push_log(format!("trap triggered: {damage} damage"));
+        self.push_log(format!("你踩中了陷阱，受到 {damage} 点伤害"));
         self.queue_noise(self.player.pos, NOISE_RADIUS_TRAP);
     }
 
@@ -346,6 +373,21 @@ mod tests {
     }
 
     #[test]
+    fn should_map_log_key() {
+        let log = KeyEvent {
+            code: KeyCode::Char('l'),
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        };
+
+        assert!(matches!(
+            action_from_key_event(log),
+            Some(Action::ToggleLog)
+        ));
+    }
+
+    #[test]
     fn close_door_action_should_close_adjacent_open_door() {
         let mut game = build_test_game(304);
         game.monsters.clear();
@@ -378,7 +420,7 @@ mod tests {
         assert_eq!(game.turn, turn_before);
         assert_eq!(
             game.log.back().map(String::as_str),
-            Some("no open door nearby")
+            Some("附近没有可关闭的门")
         );
     }
 
@@ -429,5 +471,23 @@ mod tests {
             MonsterAiState::Alert { .. }
         ));
         assert!(game.side_contract.as_ref().expect("contract").failed);
+    }
+
+    #[test]
+    fn log_view_should_scroll_with_vertical_move_actions() {
+        let mut game = build_test_game(307);
+        for index in 0..20 {
+            game.push_log(format!("日志 {index}"));
+        }
+
+        game.apply_action(Action::ToggleLog);
+        game.apply_action(Action::Move(0, -1));
+
+        assert_eq!(game.ui_mode, UiMode::Log);
+        assert_eq!(game.log_scroll, 1);
+
+        game.apply_action(Action::Move(0, 1));
+
+        assert_eq!(game.log_scroll, 0);
     }
 }

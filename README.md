@@ -52,6 +52,7 @@ To win, you must:
 - `u`: use healing potion
 - `.`: wait one turn
 - `c`: close an adjacent open door
+- `l`: open log history (`w/s` or arrows to scroll, `l`/`Esc` to close)
 - `i`: open/close inventory
 - `?`: open/close help
 - `Enter`: use/equip selected inventory item

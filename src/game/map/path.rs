@@ -35,6 +35,43 @@ pub fn bfs_next_step(map: &Map, start: Pos, goal: Pos, blocked: &HashSet<Pos>) -
     None
 }
 
+pub fn bfs_distance(map: &Map, start: Pos, goal: Pos, blocked: &HashSet<Pos>) -> Option<u32> {
+    if start == goal {
+        return Some(0);
+    }
+
+    let mut frontier = VecDeque::new();
+    let mut visited = HashSet::new();
+    let mut distance = HashMap::new();
+
+    frontier.push_back(start);
+    visited.insert(start);
+    distance.insert(start, 0_u32);
+
+    while let Some(current) = frontier.pop_front() {
+        let current_distance = distance.get(&current).copied().unwrap_or(0);
+        for next in neighbors4(current) {
+            if !map.in_bounds(next) || !map.is_walkable(next) {
+                continue;
+            }
+            if next != goal && blocked.contains(&next) {
+                continue;
+            }
+            if !visited.insert(next) {
+                continue;
+            }
+            let next_distance = current_distance + 1;
+            if next == goal {
+                return Some(next_distance);
+            }
+            distance.insert(next, next_distance);
+            frontier.push_back(next);
+        }
+    }
+
+    None
+}
+
 #[cfg(test)]
 pub fn path_exists(map: &Map, start: Pos, goal: Pos) -> bool {
     let blocked = HashSet::new();

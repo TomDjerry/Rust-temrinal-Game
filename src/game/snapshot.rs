@@ -94,6 +94,7 @@ impl Game {
             won: self.won,
             alive: self.player.stats.is_alive(),
             logs: self.log.iter().cloned().collect(),
+            log_scroll: self.log_scroll,
             ui_mode: self.ui_mode,
             inventory_selected: self.inventory_selected,
             equipped_weapon: self
@@ -288,7 +289,7 @@ mod tests {
         assert_eq!(contract.status_text, "进行中");
         assert_eq!(
             contract.constraint_lines,
-            vec!["剩余: 3 回合".to_string(), "潜行: 未暴露".to_string()]
+            vec!["剩余：3 回合".to_string(), "潜行：未暴露".to_string()]
         );
         assert_eq!(contract.failure_reason, None);
     }
@@ -312,18 +313,15 @@ mod tests {
                 max_turns: 2,
             }],
             failed: true,
-            failure_reason: Some("time limit exceeded".to_string()),
+            failure_reason: Some("超过回合限制".to_string()),
         });
 
         let snapshot = game.snapshot();
         let contract = snapshot.side_contract.expect("side contract view");
 
         assert_eq!(contract.status_text, "已失败");
-        assert_eq!(
-            contract.failure_reason,
-            Some("time limit exceeded".to_string())
-        );
-        assert_eq!(contract.constraint_lines, vec!["剩余: 已超时".to_string()]);
+        assert_eq!(contract.failure_reason, Some("超过回合限制".to_string()));
+        assert_eq!(contract.constraint_lines, vec!["剩余：已超时".to_string()]);
     }
     #[test]
     fn snapshot_should_render_door_and_trap_tiles() {

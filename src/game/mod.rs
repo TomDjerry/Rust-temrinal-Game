@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 const DEFAULT_WIDTH: i32 = 60;
 const DEFAULT_HEIGHT: i32 = 26;
 const FOV_RADIUS: i32 = 8;
-const LOG_CAPACITY: usize = 60;
+const LOG_CAPACITY: usize = 200;
 const SAVE_FILE_PATH: &str = "saves/save1.json";
 const NOISE_RADIUS_MOVE: i32 = 6;
 const NOISE_RADIUS_INTERACT: i32 = 4;
@@ -240,6 +240,7 @@ struct Game {
     won: bool,
     quit: bool,
     ui_mode: UiMode,
+    log_scroll: usize,
     inventory_selected: usize,
     data: GameData,
     pending_noise: Option<NoiseEvent>,
@@ -261,6 +262,7 @@ enum Action {
     Load,
     ToggleInventory,
     ToggleHelp,
+    ToggleLog,
     Escape,
     Quit,
 }
@@ -306,13 +308,13 @@ pub fn run(config: GameConfig) -> Result<()> {
         effective_config.width != config.width || effective_config.height != config.height;
     let mut game = Game::new(effective_config, seed, data)?;
 
-    game.push_log(format!("Seed: {seed}"));
+    game.push_log(format!("种子：{seed}"));
     if let Some(line) = game.side_contract_progress_line() {
         game.push_log(line);
     }
     if was_clamped {
         game.push_log(format!(
-            "缁堢杈冨皬锛屽湴鍥惧凡璋冩暣涓?{}x{}",
+            "终端空间不足，地图已自动调整为 {}x{}",
             effective_config.width, effective_config.height
         ));
     }
@@ -363,6 +365,7 @@ fn action_from_key_event(key_event: KeyEvent) -> Option<Action> {
         KeyCode::F(3) => Action::Load,
         KeyCode::Char('i') => Action::ToggleInventory,
         KeyCode::Char('?') => Action::ToggleHelp,
+        KeyCode::Char('l') => Action::ToggleLog,
         KeyCode::Esc => Action::Escape,
         KeyCode::Char('q') => Action::Quit,
         _ => return None,
@@ -413,6 +416,7 @@ impl Game {
             won: false,
             quit: false,
             ui_mode: UiMode::Normal,
+            log_scroll: 0,
             inventory_selected: 0,
             data,
             pending_noise: None,
@@ -620,18 +624,12 @@ impl Game {
             }
             self.monsters[index].stats.hp -= damage;
             if crit {
-                self.push_log(format!(
-                    "浣犳毚鍑讳簡{}锛岄€犳垚{}浼ゅ",
-                    monster_name, damage
-                ));
+                self.push_log(format!("你暴击命中 {monster_name}，造成 {damage} 点伤害"));
             } else {
-                self.push_log(format!(
-                    "浣犳敾鍑讳簡{}锛岄€犳垚{}浼ゅ",
-                    monster_name, damage
-                ));
+                self.push_log(format!("你攻击 {monster_name}，造成 {damage} 点伤害"));
             }
             if self.monsters[index].stats.hp <= 0 {
-                self.push_log(format!("{} 被击倒", monster_name));
+                self.push_log(format!("{monster_name} 被击倒"));
                 self.on_monster_killed_for_contract();
             }
             return true;
@@ -644,12 +642,12 @@ impl Game {
         {
             self.map
                 .set_tile_type(target, crate::game::map::TileType::OpenDoor);
-            self.push_log("door opened".to_string());
+            self.push_log("你推开了门".to_string());
             return true;
         }
 
         if !self.map.is_walkable(target) {
-            self.push_log("blocked ahead".to_string());
+            self.push_log("前方被挡住了".to_string());
             return false;
         }
 
@@ -666,7 +664,7 @@ impl Game {
         {
             let missing = self.missing_required_quest_item_names().join("、");
             self.push_log(format!(
-                "缺少必需任务物: {missing}（{}/{}）",
+                "缺少必需任务物：{missing}（{}/{}）",
                 self.collected_required_quest_item_count(),
                 self.required_quest_item_ids().len()
             ));
@@ -678,7 +676,7 @@ impl Game {
             && self.player.pos == self.exit_pos
         {
             self.won = true;
-            self.push_log(format!("第{}回合：包裹已送达，任务完成", self.turn));
+            self.push_log(format!("第 {} 回合：包裹已送达，任务完成", self.turn));
         }
     }
 

@@ -75,10 +75,12 @@ impl Game {
     pub(in crate::game) fn side_contract_progress_line(&self) -> Option<String> {
         self.side_contract.as_ref().map(|contract| {
             if contract.completed {
-                format!("支线合约 {}: 已完成", contract.name)
+                format!("支线合约 {}：已完成", contract.name)
+            } else if contract.failed {
+                format!("支线合约 {}：已失败", contract.name)
             } else {
                 format!(
-                    "支线合约 {}: {}/{}",
+                    "支线合约 {}：{}/{}",
                     contract.name,
                     contract.progress,
                     contract.target()
@@ -103,9 +105,9 @@ impl Game {
                 && let Some(remaining) = contract.remaining_turns(self.turn)
             {
                 if remaining < 0 {
-                    constraint_lines.push("剩余: 已超时".to_string());
+                    constraint_lines.push("剩余：已超时".to_string());
                 } else {
-                    constraint_lines.push(format!("剩余: {remaining} 回合"));
+                    constraint_lines.push(format!("剩余：{remaining} 回合"));
                 }
             }
             if contract.has_stealth_requirement()
@@ -119,9 +121,9 @@ impl Game {
                         })
             {
                 constraint_lines.push(if exposed {
-                    "潜行: 已失败".to_string()
+                    "潜行：已暴露".to_string()
                 } else {
-                    "潜行: 未暴露".to_string()
+                    "潜行：未暴露".to_string()
                 });
             }
             SideContractView {
@@ -170,7 +172,7 @@ impl Game {
         {
             contract.progress = contract.progress.saturating_add(1);
             progress_log = Some(format!(
-                "支线合约 {}: {}/{}",
+                "支线合约 {}：{}/{}",
                 contract.name,
                 contract.progress,
                 contract.target()
@@ -178,39 +180,27 @@ impl Game {
         }
         if let Some(line) = progress_log {
             self.push_log(line);
-        }
-        if self
-            .side_contract
-            .as_ref()
-            .is_some_and(|contract| !contract.is_terminal())
-        {
             self.try_complete_side_contract();
         }
     }
 
     pub(in crate::game) fn on_item_collected_for_contract(&mut self, item_id: &str, qty: u32) {
-        if qty == 0 {
-            return;
-        }
         let mut progress_log: Option<String> = None;
-        if let Some(contract) = &mut self.side_contract {
-            if contract.is_terminal() {
-                return;
-            }
-            if let ContractObjective::CollectItem {
+        if let Some(contract) = &mut self.side_contract
+            && !contract.is_terminal()
+            && let ContractObjective::CollectItem {
                 item_id: target_item_id,
-                target: _,
+                ..
             } = &contract.objective
-                && target_item_id == item_id
-            {
-                contract.progress = contract.progress.saturating_add(qty);
-                progress_log = Some(format!(
-                    "支线合约 {}: {}/{}",
-                    contract.name,
-                    contract.progress,
-                    contract.target()
-                ));
-            }
+            && target_item_id == item_id
+        {
+            contract.progress = contract.progress.saturating_add(qty);
+            progress_log = Some(format!(
+                "支线合约 {}：{}/{}",
+                contract.name,
+                contract.progress,
+                contract.target()
+            ));
         }
         if let Some(line) = progress_log {
             self.push_log(line);
@@ -248,10 +238,10 @@ impl Game {
                 .map(|item| item.name.clone())
                 .unwrap_or(reward_item_id);
             self.push_log(format!(
-                "支线合约完成: {contract_name}，获得 {reward_name} x{added}"
+                "支线合约完成：{contract_name}，获得 {reward_name} x{added}"
             ));
         } else {
-            self.push_log(format!("支线合约完成: {contract_name}，但奖励未能放入背包"));
+            self.push_log(format!("支线合约完成：{contract_name}，但奖励未能放入背包"));
         }
     }
 
@@ -277,7 +267,7 @@ impl Game {
             }
         }
         if should_fail {
-            self.fail_side_contract("stealth failed: alerted");
+            self.fail_side_contract("潜行失败：敌人进入警戒");
         }
     }
 
@@ -293,7 +283,7 @@ impl Game {
             contract_name = Some(contract.name.clone());
         }
         if let Some(contract_name) = contract_name {
-            self.push_log(format!("contract failed: {contract_name} - {reason}"));
+            self.push_log(format!("支线合约失败：{contract_name}（{reason}）"));
         }
     }
 
@@ -306,7 +296,7 @@ impl Game {
         });
 
         if should_fail {
-            self.fail_side_contract("time limit exceeded");
+            self.fail_side_contract("超过回合限制");
         }
     }
 
@@ -326,7 +316,7 @@ impl Game {
 
     pub(in crate::game) fn log_required_quest_progress(&mut self) {
         let (collected, total) = self.required_quest_progress();
-        self.push_log(format!("必需任务物进度: {collected}/{total}"));
+        self.push_log(format!("必需任务物进度：{collected}/{total}"));
         if let Some(line) = self.side_contract_progress_line() {
             self.push_log(line);
         }

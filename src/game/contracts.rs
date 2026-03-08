@@ -124,10 +124,7 @@ mod tests {
         let contract = game.side_contract.as_ref().expect("contract");
         assert!(contract.failed);
         assert!(!contract.completed);
-        assert_eq!(
-            contract.failure_reason.as_deref(),
-            Some("time limit exceeded")
-        );
+        assert_eq!(contract.failure_reason.as_deref(), Some("超过回合限制"));
     }
 
     #[test]
@@ -218,7 +215,7 @@ mod tests {
         assert!(contract.failed);
         assert_eq!(
             contract.failure_reason.as_deref(),
-            Some("stealth failed: alerted")
+            Some("潜行失败：敌人进入警戒")
         );
         assert!(matches!(
             contract.constraints.first(),
@@ -267,6 +264,18 @@ mod tests {
             saw_dual,
             "expected generated collect contract with both constraints"
         );
+    }
+
+    #[test]
+    fn collect_contract_turn_limit_should_scale_beyond_old_fixed_values() {
+        let game = build_test_game(401);
+
+        let timed_turns = game.estimate_collect_contract_turn_limit(2, false);
+        let dual_turns = game.estimate_collect_contract_turn_limit(2, true);
+
+        assert!(timed_turns > 8);
+        assert!(dual_turns > 10);
+        assert!(dual_turns >= timed_turns);
     }
 
     #[test]

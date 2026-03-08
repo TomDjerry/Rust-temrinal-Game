@@ -15,6 +15,7 @@ pub enum UiMode {
     Normal,
     Inventory,
     Help,
+    Log,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,6 +50,7 @@ pub struct UiSnapshot {
     pub won: bool,
     pub alive: bool,
     pub logs: Vec<String>,
+    pub log_scroll: usize,
     pub ui_mode: UiMode,
     pub inventory_selected: usize,
     pub equipped_weapon: Option<String>,
@@ -113,11 +115,14 @@ pub fn transition_mode_key(mode: UiMode, key: KeyCode) -> UiMode {
         (UiMode::Inventory, KeyCode::Char('i')) => UiMode::Normal,
         (UiMode::Normal, KeyCode::Char('?')) => UiMode::Help,
         (UiMode::Help, KeyCode::Char('?')) => UiMode::Normal,
-        (UiMode::Inventory, KeyCode::Esc) | (UiMode::Help, KeyCode::Esc) => UiMode::Normal,
+        (UiMode::Normal, KeyCode::Char('l')) => UiMode::Log,
+        (UiMode::Log, KeyCode::Char('l')) => UiMode::Normal,
+        (UiMode::Inventory, KeyCode::Esc)
+        | (UiMode::Help, KeyCode::Esc)
+        | (UiMode::Log, KeyCode::Esc) => UiMode::Normal,
         _ => mode,
     }
 }
-
 pub fn draw(terminal: &mut AppTerminal, snapshot: &UiSnapshot) -> Result<()> {
     terminal
         .draw(|frame| render(frame, snapshot))
@@ -142,6 +147,7 @@ fn render(frame: &mut Frame<'_>, snapshot: &UiSnapshot) {
     match snapshot.ui_mode {
         UiMode::Inventory => render_inventory_popup(frame, snapshot),
         UiMode::Help => render_help_popup(frame),
+        UiMode::Log => render_log_popup(frame, snapshot),
         UiMode::Normal => {}
     }
 }
@@ -340,35 +346,68 @@ fn render_inventory_popup(frame: &mut Frame<'_>, snapshot: &UiSnapshot) {
     );
 }
 
+fn render_log_popup(frame: &mut Frame<'_>, snapshot: &UiSnapshot) {
+    let rect = centered_rect(78, 70, frame.area());
+    frame.render_widget(Clear, rect);
+
+    let inner_height = rect.height.saturating_sub(2) as usize;
+    let body_height = inner_height.saturating_sub(2).max(1);
+    let total = snapshot.logs.len();
+    let end = total.saturating_sub(snapshot.log_scroll);
+    let start = end.saturating_sub(body_height);
+    let visible = snapshot.logs[start..end]
+        .iter()
+        .map(|line| Line::from(line.clone()))
+        .collect::<Vec<_>>();
+    let footer = Line::from(format!(
+        "查看日志：W/S 或 ↑/↓ 翻页，L 或 Esc 关闭（{}-{} / {}）",
+        if total == 0 { 0 } else { start + 1 },
+        end,
+        total
+    ));
+
+    let mut lines = visible;
+    lines.push(Line::from(""));
+    lines.push(footer);
+
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(Block::default().title(" 日志历史 ").borders(Borders::ALL))
+            .wrap(Wrap { trim: true }),
+        rect,
+    );
+}
 fn render_help_popup(frame: &mut Frame<'_>) {
     let rect = centered_rect(70, 60, frame.area());
     frame.render_widget(Clear, rect);
 
     let lines = vec![
-        Line::from("c: close adjacent open door"),
         Line::from("帮助"),
         Line::from(""),
-        Line::from("WASD / 方向键: 移动"),
-        Line::from("g: 拾取"),
-        Line::from("u: 使用治疗药水"),
-        Line::from(".: 等待一回合"),
-        Line::from("i: 背包弹窗"),
-        Line::from("背包内: w/s 选择, Enter 使用/装备, r 卸下, x 丢弃"),
-        Line::from("?: 帮助弹窗"),
-        Line::from("F2: 快速存档  F3: 读取存档"),
-        Line::from("Esc: 关闭弹窗 / 退出"),
-        Line::from("q: 退出游戏"),
+        Line::from("WASD / 方向键：移动"),
+        Line::from("g：拾取"),
+        Line::from("u：使用治疗药水"),
+        Line::from("c：关闭相邻已开启的门"),
+        Line::from("l：打开日志历史"),
+        Line::from(".：等待一回合"),
+        Line::from("i：背包弹窗"),
+        Line::from("背包内：w/s 选择，Enter 使用/装备，r 卸下，x 丢弃"),
+        Line::from("?：帮助弹窗"),
+        Line::from("F2：快速存档    F3：快速读档"),
+        Line::from("Esc：关闭弹窗 / 退出"),
+        Line::from("q：退出游戏"),
         Line::from(""),
         Line::from("属性说明"),
-        Line::from("ATK: 攻击力，影响基础伤害"),
-        Line::from("DEF: 防御力，降低受到的基础伤害"),
-        Line::from("CRIT: 暴击率，触发时伤害翻倍"),
-        Line::from("EVA: 闪避率，触发时免疫本次伤害"),
-        Line::from("PEN: 穿透值，按点数降低目标防御"),
-        Line::from("RES: 减伤率，按百分比降低受击伤害（保底1）"),
+        Line::from("ATK：攻击力，影响基础伤害"),
+        Line::from("DEF：防御力，降低受到的基础伤害"),
+        Line::from("CRIT：暴击率，触发时伤害翻倍"),
+        Line::from("EVA：闪避率，触发时免疫本次伤害"),
+        Line::from("PEN：穿透值，按点数降低目标防御"),
+        Line::from("RES：减伤率，按百分比降低受击伤害"),
         Line::from(""),
-        Line::from("地图图例: P=包裹, D/B=任务道具, !=治疗药水"),
-        Line::from("走到 P 上会自动拾取；其余道具可按 g 拾取"),
+        Line::from("地图图例：P=包裹，D/B=任务道具，!=治疗药水"),
+        Line::from("地图图例：+=关门，/=开门，^=陷阱"),
+        Line::from("走到 P 上会自动拾取；其他道具可按 g 拾取"),
         Line::from(""),
         Line::from("按 ? 或 Esc 关闭"),
     ];
@@ -380,7 +419,6 @@ fn render_help_popup(frame: &mut Frame<'_>) {
         rect,
     );
 }
-
 fn build_map_lines(rows: &[Vec<MapCell>], width: usize, height: usize) -> Vec<Line<'static>> {
     let mut lines = Vec::with_capacity(height);
     for y in 0..height {
@@ -482,6 +520,7 @@ mod tests {
             won: false,
             alive: true,
             logs: Vec::new(),
+            log_scroll: 0,
             ui_mode: UiMode::Normal,
             inventory_selected: 0,
             equipped_weapon: None,
@@ -505,6 +544,8 @@ mod tests {
         assert_eq!(transition_mode(UiMode::Inventory, 'i'), UiMode::Normal);
         assert_eq!(transition_mode(UiMode::Normal, '?'), UiMode::Help);
         assert_eq!(transition_mode(UiMode::Help, '?'), UiMode::Normal);
+        assert_eq!(transition_mode(UiMode::Normal, 'l'), UiMode::Log);
+        assert_eq!(transition_mode(UiMode::Log, 'l'), UiMode::Normal);
         assert_eq!(transition_mode(UiMode::Help, 'x'), UiMode::Help);
     }
 
@@ -556,13 +597,13 @@ mod tests {
             completed: false,
             status_text: "已失败".to_string(),
             constraint_lines: vec!["剩余: 已超时".to_string()],
-            failure_reason: Some("time limit exceeded".to_string()),
+            failure_reason: Some("超过回合限制".to_string()),
         });
 
         let lines = build_side_contract_lines(&snapshot);
 
         assert!(lines.contains(&"状态: 已失败".to_string()));
         assert!(lines.contains(&"剩余: 已超时".to_string()));
-        assert!(lines.contains(&"失败: time limit exceeded".to_string()));
+        assert!(lines.contains(&"失败: 超过回合限制".to_string()));
     }
 }

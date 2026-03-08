@@ -1,24 +1,69 @@
 use super::super::*;
+use crate::game::map::path::bfs_distance;
+use std::collections::HashSet;
 
-const GENERATED_COLLECT_TIME_LIMIT_TURNS: u32 = 8;
-const GENERATED_DUAL_CONTRACT_TIME_LIMIT_TURNS: u32 = 10;
+const GENERATED_COLLECT_TIME_LIMIT_TURNS: u32 = 14;
+const GENERATED_DUAL_CONTRACT_TIME_LIMIT_TURNS: u32 = 18;
 
 impl Game {
     fn generated_collect_contract_constraints(&mut self) -> Vec<ContractConstraint> {
         match self.rng.random_range(0..3) {
             0 => vec![ContractConstraint::TimeLimit {
                 start_turn: self.turn,
-                max_turns: GENERATED_COLLECT_TIME_LIMIT_TURNS,
+                max_turns: self.estimate_collect_contract_turn_limit(2, false),
             }],
             1 => vec![ContractConstraint::Stealth { exposed: false }],
             _ => vec![
                 ContractConstraint::TimeLimit {
                     start_turn: self.turn,
-                    max_turns: GENERATED_DUAL_CONTRACT_TIME_LIMIT_TURNS,
+                    max_turns: self.estimate_collect_contract_turn_limit(2, true),
                 },
                 ContractConstraint::Stealth { exposed: false },
             ],
         }
+    }
+
+    pub(in crate::game) fn estimate_collect_contract_turn_limit(
+        &self,
+        target: u32,
+        include_stealth_buffer: bool,
+    ) -> u32 {
+        let mut remaining_targets = target as usize;
+        let mut current = self.player.pos;
+        let blocked = HashSet::new();
+        let mut potion_positions = self
+            .ground_items
+            .iter()
+            .filter(|item| item.item_id == "healing_potion")
+            .map(|item| item.pos)
+            .collect::<Vec<_>>();
+        let mut steps = 0_u32;
+
+        while remaining_targets > 0 && !potion_positions.is_empty() {
+            let Some((index, distance)) = potion_positions
+                .iter()
+                .enumerate()
+                .filter_map(|(index, pos)| {
+                    bfs_distance(&self.map, current, *pos, &blocked)
+                        .map(|distance| (index, distance))
+                })
+                .min_by_key(|(_, distance)| *distance)
+            else {
+                break;
+            };
+
+            steps += distance;
+            current = potion_positions.remove(index);
+            remaining_targets -= 1;
+        }
+
+        let minimum = if include_stealth_buffer {
+            GENERATED_DUAL_CONTRACT_TIME_LIMIT_TURNS
+        } else {
+            GENERATED_COLLECT_TIME_LIMIT_TURNS
+        };
+        let slack = target.saturating_mul(3) + if include_stealth_buffer { 6 } else { 4 };
+        minimum.max(steps + slack)
     }
 
     pub(in crate::game) fn ensure_side_contract(&mut self, announce: bool) {
@@ -56,7 +101,7 @@ impl Game {
         };
 
         if announce {
-            self.push_log(format!("新增支线合约: {}", contract.name));
+            self.push_log(format!("新增支线合约：{}", contract.name));
         }
         self.side_contract = Some(contract);
     }
