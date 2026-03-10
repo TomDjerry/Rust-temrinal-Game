@@ -34,27 +34,40 @@ impl Game {
         };
 
         let Some(def) = self.data.item_defs.get(&item_id) else {
-            self.push_log("物品定义缺失，无法丢弃".to_string());
+            self.push_log(
+                "\u{7269}\u{54C1}\u{5B9A}\u{4E49}\u{7F3A}\u{5931}\u{FF0C}\u{65E0}\u{6CD5}\u{4E22}\u{5F03}"
+                    .to_string(),
+            );
             return false;
         };
         let def_name = def.name.clone();
 
         let Some((_, can_drop)) = self.item_permissions(&item_id) else {
-            self.push_log("物品定义缺失，无法丢弃".to_string());
+            self.push_log(
+                "\u{7269}\u{54C1}\u{5B9A}\u{4E49}\u{7F3A}\u{5931}\u{FF0C}\u{65E0}\u{6CD5}\u{4E22}\u{5F03}"
+                    .to_string(),
+            );
             return false;
         };
 
         if !can_drop {
-            self.push_log("任务道具不可丢弃".to_string());
+            self.push_log(
+                "\u{59D4}\u{6258}\u{9053}\u{5177}\u{4E0D}\u{53EF}\u{4E22}\u{5F03}".to_string(),
+            );
             return false;
         }
         if self.is_item_equipped(&item_id) {
-            self.push_log("该物品已装备，请先按 r 卸下".to_string());
+            self.push_log(
+                "\u{8BE5}\u{7269}\u{54C1}\u{5DF2}\u{88C5}\u{5907}\u{FF0C}\u{8BF7}\u{5148}\u{6309} r \u{5378}\u{4E0B}"
+                    .to_string(),
+            );
             return false;
         }
 
         if !self.remove_item_from_inventory(&item_id, 1) {
-            self.push_log("背包中没有该物品".to_string());
+            self.push_log(
+                "\u{80CC}\u{5305}\u{4E2D}\u{6CA1}\u{6709}\u{8BE5}\u{7269}\u{54C1}".to_string(),
+            );
             return false;
         }
 
@@ -62,7 +75,7 @@ impl Game {
             item_id: item_id.clone(),
             pos: self.player.pos,
         });
-        self.push_log(format!("你丢弃了 {}", def_name));
+        self.push_log(format!("\u{4F60}\u{4E22}\u{5F03}\u{4E86} {}", def_name));
         self.clamp_inventory_selected();
         true
     }
@@ -179,12 +192,15 @@ impl Game {
 
     fn try_use_item(&mut self, item_id: &str) -> bool {
         if self.player.item_count(item_id) == 0 {
-            self.push_log("背包中没有可用物品".to_string());
+            self.push_log(
+                "\u{80CC}\u{5305}\u{4E2D}\u{6CA1}\u{6709}\u{53EF}\u{7528}\u{7269}\u{54C1}"
+                    .to_string(),
+            );
             return false;
         }
 
         let Some(def) = self.data.item_defs.get(item_id) else {
-            self.push_log("物品定义缺失".to_string());
+            self.push_log("\u{7269}\u{54C1}\u{5B9A}\u{4E49}\u{7F3A}\u{5931}".to_string());
             return false;
         };
         let def_name = def.name.clone();
@@ -193,11 +209,17 @@ impl Game {
         match effect {
             ItemEffectDef::Consumable { heal } => {
                 if !self.remove_item_from_inventory(item_id, 1) {
-                    self.push_log("背包中没有可用物品".to_string());
+                    self.push_log(
+                        "\u{80CC}\u{5305}\u{4E2D}\u{6CA1}\u{6709}\u{53EF}\u{7528}\u{7269}\u{54C1}"
+                            .to_string(),
+                    );
                     return false;
                 }
                 self.player.stats.hp = (self.player.stats.hp + heal).min(self.player.stats.max_hp);
-                self.push_log(format!("你使用了{}，回复{} HP", def_name, heal));
+                self.push_log(format!(
+                    "\u{4F60}\u{4F7F}\u{7528}\u{4E86}{}\u{FF0C}\u{56DE}\u{590D}{} HP",
+                    def_name, heal
+                ));
                 self.clamp_inventory_selected();
                 true
             }
@@ -207,7 +229,10 @@ impl Game {
                 duration_turns,
             } => {
                 if !self.remove_item_from_inventory(item_id, 1) {
-                    self.push_log("背包中没有可用物品".to_string());
+                    self.push_log(
+                        "\u{80CC}\u{5305}\u{4E2D}\u{6CA1}\u{6709}\u{53EF}\u{7528}\u{7269}\u{54C1}"
+                            .to_string(),
+                    );
                     return false;
                 }
                 self.active_buffs.push(ActiveBuff {
@@ -216,20 +241,22 @@ impl Game {
                     turns_left: duration_turns,
                 });
                 self.push_log(format!(
-                    "你使用了{}，获得 ATK+{} DEF+{}（{} 回合）",
+                    "\u{4F60}\u{4F7F}\u{7528}\u{4E86}{}\u{FF0C}\u{83B7}\u{5F97} ATK+{} DEF+{}\u{FF08}{} \u{56DE}\u{5408}\u{FF09}",
                     def_name, atk_bonus, def_bonus, duration_turns
                 ));
                 self.clamp_inventory_selected();
                 true
             }
             ItemEffectDef::QuestPackage => {
-                self.push_log("任务包裹不可使用".to_string());
+                self.push_log("\u{5305}\u{88F9}\u{4E0D}\u{53EF}\u{4F7F}\u{7528}".to_string());
                 false
             }
             ItemEffectDef::QuestItem {
                 required_for_delivery: _,
             } => {
-                self.push_log("任务道具不可使用".to_string());
+                self.push_log(
+                    "\u{59D4}\u{6258}\u{9053}\u{5177}\u{4E0D}\u{53EF}\u{4F7F}\u{7528}".to_string(),
+                );
                 false
             }
             ItemEffectDef::Equipment { .. } => self.try_equip_item(item_id),
@@ -250,7 +277,10 @@ impl Game {
 
         self.ground_items.swap_remove(index);
         let _ = self.add_item_to_inventory("package", 1);
-        self.push_log("你已自动捡取包裹，前往出口 E".to_string());
+        self.push_log(
+            "\u{4F60}\u{5DF2}\u{53D6}\u{5F97}\u{5305}\u{88F9}\u{FF0C}\u{524D}\u{5F80}\u{51FA}\u{53E3} E"
+                .to_string(),
+        );
     }
 
     pub(in crate::game) fn try_pickup(&mut self) -> bool {
@@ -271,35 +301,47 @@ impl Game {
                 let def_name = def.name.clone();
                 let added = self.add_item_to_inventory(&item.item_id, 1);
                 if added == 0 {
-                    self.push_log(format!("{} 已满，无法继续捡取", def_name));
+                    self.push_log(format!(
+                        "{} \u{5DF2}\u{6EE1}\u{FF0C}\u{65E0}\u{6CD5}\u{7EE7}\u{7EED}\u{62FE}\u{53D6}",
+                        def_name
+                    ));
                     kept.push(item);
                     continue;
                 }
                 self.on_item_collected_for_contract(&item.item_id, added);
                 match def_effect {
                     ItemEffectDef::QuestPackage => {
-                        self.push_log("你已捡取包裹，前往出口 E".to_string());
+                        self.push_log(
+                            "\u{4F60}\u{5DF2}\u{62FE}\u{53D6}\u{5305}\u{88F9}\u{FF0C}\u{524D}\u{5F80}\u{51FA}\u{53E3} E"
+                                .to_string(),
+                        );
                         self.log_required_quest_progress();
                     }
                     ItemEffectDef::QuestItem {
                         required_for_delivery,
                     } => {
                         if required_for_delivery {
-                            self.push_log(format!("你已捡取{}，交付前请妥善保管", def_name));
+                            self.push_log(format!(
+                                "\u{4F60}\u{5DF2}\u{62FE}\u{53D6}{}\u{FF0C}\u{914D}\u{9001}\u{524D}\u{8BF7}\u{59A5}\u{5584}\u{4FDD}\u{7BA1}",
+                                def_name
+                            ));
                             self.log_required_quest_progress();
                         } else {
-                            self.push_log(format!("你已捡取任务道具 {}", def_name));
+                            self.push_log(format!(
+                                "\u{4F60}\u{5DF2}\u{62FE}\u{53D6}\u{59D4}\u{6258}\u{9053}\u{5177} {}",
+                                def_name
+                            ));
                         }
                     }
                     ItemEffectDef::Consumable { .. } | ItemEffectDef::BuffConsumable { .. } => {
                         self.push_log(format!(
-                            "捡取 {}，当前数量 {}",
+                            "\u{62FE}\u{53D6} {}\u{FF0C}\u{5F53}\u{524D}\u{6570}\u{91CF} {}",
                             def_name,
                             self.player.item_count(&item.item_id)
                         ));
                     }
                     ItemEffectDef::Equipment { .. } => {
-                        self.push_log(format!("捡取装备 {}", def_name));
+                        self.push_log(format!("\u{62FE}\u{53D6}\u{88C5}\u{5907} {}", def_name));
                     }
                 }
             }
@@ -308,7 +350,10 @@ impl Game {
         self.ground_items = kept;
 
         if !picked_any {
-            self.push_log("脚下没有可捡取物品".to_string());
+            self.push_log(
+                "\u{811A}\u{4E0B}\u{6CA1}\u{6709}\u{53EF}\u{62FE}\u{53D6}\u{7684}\u{7269}\u{54C1}"
+                    .to_string(),
+            );
         }
 
         picked_any

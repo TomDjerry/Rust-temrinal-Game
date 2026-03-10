@@ -308,13 +308,13 @@ pub fn run(config: GameConfig) -> Result<()> {
         effective_config.width != config.width || effective_config.height != config.height;
     let mut game = Game::new(effective_config, seed, data)?;
 
-    game.push_log(format!("种子：{seed}"));
+    game.push_log(format!("\u{79CD}\u{5B50}\u{FF1A}{seed}"));
     if let Some(line) = game.side_contract_progress_line() {
         game.push_log(line);
     }
     if was_clamped {
         game.push_log(format!(
-            "终端空间不足，地图已自动调整为 {}x{}",
+            "\u{7EC8}\u{7AEF}\u{7A7A}\u{95F4}\u{4E0D}\u{8DB3}\u{FF0C}\u{5730}\u{56FE}\u{5DF2}\u{81EA}\u{52A8}\u{8C03}\u{6574}\u{4E3A} {}x{}",
             effective_config.width, effective_config.height
         ));
     }
@@ -624,12 +624,16 @@ impl Game {
             }
             self.monsters[index].stats.hp -= damage;
             if crit {
-                self.push_log(format!("你暴击命中 {monster_name}，造成 {damage} 点伤害"));
+                self.push_log(format!(
+                    "\u{4F60}\u{66B4}\u{51FB}\u{547D}\u{4E2D} {monster_name}\u{FF0C}\u{9020}\u{6210} {damage} \u{70B9}\u{4F24}\u{5BB3}"
+                ));
             } else {
-                self.push_log(format!("你攻击 {monster_name}，造成 {damage} 点伤害"));
+                self.push_log(format!(
+                    "\u{4F60}\u{653B}\u{51FB} {monster_name}\u{FF0C}\u{9020}\u{6210} {damage} \u{70B9}\u{4F24}\u{5BB3}"
+                ));
             }
             if self.monsters[index].stats.hp <= 0 {
-                self.push_log(format!("{monster_name} 被击倒"));
+                self.push_log(format!("{monster_name} \u{88AB}\u{51FB}\u{5012}"));
                 self.on_monster_killed_for_contract();
             }
             return true;
@@ -642,12 +646,12 @@ impl Game {
         {
             self.map
                 .set_tile_type(target, crate::game::map::TileType::OpenDoor);
-            self.push_log("你推开了门".to_string());
+            self.push_log("\u{4F60}\u{63A8}\u{5F00}\u{4E86}\u{95E8}".to_string());
             return true;
         }
 
         if !self.map.is_walkable(target) {
-            self.push_log("前方被挡住了".to_string());
+            self.push_log("\u{524D}\u{65B9}\u{88AB}\u{6321}\u{4F4F}\u{4E86}".to_string());
             return false;
         }
 
@@ -662,9 +666,9 @@ impl Game {
             && self.player.has_item("package")
             && !self.has_all_required_quest_items()
         {
-            let missing = self.missing_required_quest_item_names().join("、");
+            let missing = self.missing_required_quest_item_names().join("\u{3001}");
             self.push_log(format!(
-                "缺少必需任务物：{missing}（{}/{}）",
+                "\u{7F3A}\u{5C11}\u{5FC5}\u{9700}\u{59D4}\u{6258}\u{7269}\u{FF1A}{missing}\u{FF08}{}/{}\u{FF09}",
                 self.collected_required_quest_item_count(),
                 self.required_quest_item_ids().len()
             ));
@@ -676,7 +680,10 @@ impl Game {
             && self.player.pos == self.exit_pos
         {
             self.won = true;
-            self.push_log(format!("第 {} 回合：包裹已送达，任务完成", self.turn));
+            self.push_log(format!(
+                "\u{7B2C} {} \u{56DE}\u{5408}\u{FF1A}\u{5305}\u{88F9}\u{5DF2}\u{9001}\u{8FBE}\u{FF0C}\u{914D}\u{9001}\u{5B8C}\u{6210}",
+                self.turn
+            ));
         }
     }
 

@@ -75,12 +75,18 @@ impl Game {
     pub(in crate::game) fn side_contract_progress_line(&self) -> Option<String> {
         self.side_contract.as_ref().map(|contract| {
             if contract.completed {
-                format!("支线合约 {}：已完成", contract.name)
+                format!(
+                    "\u{652F}\u{7EBF}\u{59D4}\u{6258} {}\u{FF1A}\u{5DF2}\u{5B8C}\u{6210}",
+                    contract.name
+                )
             } else if contract.failed {
-                format!("支线合约 {}：已失败", contract.name)
+                format!(
+                    "\u{652F}\u{7EBF}\u{59D4}\u{6258} {}\u{FF1A}\u{5DF2}\u{5931}\u{8D25}",
+                    contract.name
+                )
             } else {
                 format!(
-                    "支线合约 {}：{}/{}",
+                    "\u{652F}\u{7EBF}\u{59D4}\u{6258} {}\u{FF1A}{}/{}",
                     contract.name,
                     contract.progress,
                     contract.target()
@@ -94,20 +100,23 @@ impl Game {
             let target = contract.target();
             let progress = contract.progress.min(target);
             let status_text = if contract.failed {
-                "已失败".to_string()
+                "\u{5DF2}\u{5931}\u{8D25}".to_string()
             } else if contract.completed {
-                "已完成".to_string()
+                "\u{5DF2}\u{5B8C}\u{6210}".to_string()
             } else {
-                "进行中".to_string()
+                "\u{8FDB}\u{884C}\u{4E2D}".to_string()
             };
             let mut constraint_lines = Vec::new();
             if contract.has_time_limit()
                 && let Some(remaining) = contract.remaining_turns(self.turn)
             {
                 if remaining < 0 {
-                    constraint_lines.push("剩余：已超时".to_string());
+                    constraint_lines
+                        .push("\u{5269}\u{4F59}\u{FF1A}\u{5DF2}\u{8D85}\u{65F6}".to_string());
                 } else {
-                    constraint_lines.push(format!("剩余：{remaining} 回合"));
+                    constraint_lines.push(format!(
+                        "\u{5269}\u{4F59}\u{FF1A}{remaining} \u{56DE}\u{5408}"
+                    ));
                 }
             }
             if contract.has_stealth_requirement()
@@ -121,9 +130,9 @@ impl Game {
                         })
             {
                 constraint_lines.push(if exposed {
-                    "潜行：已暴露".to_string()
+                    "\u{6F5C}\u{884C}\u{FF1A}\u{5DF2}\u{66B4}\u{9732}".to_string()
                 } else {
-                    "潜行：未暴露".to_string()
+                    "\u{6F5C}\u{884C}\u{FF1A}\u{672A}\u{66B4}\u{9732}".to_string()
                 });
             }
             SideContractView {
@@ -141,7 +150,9 @@ impl Game {
 
     fn side_contract_objective_text(&self, contract: &SideContract) -> String {
         match &contract.objective {
-            ContractObjective::KillMonsters { .. } => "击杀怪物".to_string(),
+            ContractObjective::KillMonsters { .. } => {
+                "\u{51FB}\u{6740}\u{602A}\u{7269}".to_string()
+            }
             ContractObjective::CollectItem { item_id, .. } => {
                 let item_name = self
                     .data
@@ -149,7 +160,7 @@ impl Game {
                     .get(item_id)
                     .map(|item| item.name.as_str())
                     .unwrap_or(item_id.as_str());
-                format!("收集 {item_name}")
+                format!("\u{6536}\u{96C6} {item_name}")
             }
         }
     }
@@ -172,7 +183,7 @@ impl Game {
         {
             contract.progress = contract.progress.saturating_add(1);
             progress_log = Some(format!(
-                "支线合约 {}：{}/{}",
+                "\u{652F}\u{7EBF}\u{59D4}\u{6258} {}\u{FF1A}{}/{}",
                 contract.name,
                 contract.progress,
                 contract.target()
@@ -196,7 +207,7 @@ impl Game {
         {
             contract.progress = contract.progress.saturating_add(qty);
             progress_log = Some(format!(
-                "支线合约 {}：{}/{}",
+                "\u{652F}\u{7EBF}\u{59D4}\u{6258} {}\u{FF1A}{}/{}",
                 contract.name,
                 contract.progress,
                 contract.target()
@@ -238,10 +249,12 @@ impl Game {
                 .map(|item| item.name.clone())
                 .unwrap_or(reward_item_id);
             self.push_log(format!(
-                "支线合约完成：{contract_name}，获得 {reward_name} x{added}"
+                "\u{652F}\u{7EBF}\u{59D4}\u{6258}\u{5B8C}\u{6210}\u{FF1A}{contract_name}\u{FF0C}\u{83B7}\u{5F97} {reward_name} x{added}"
             ));
         } else {
-            self.push_log(format!("支线合约完成：{contract_name}，但奖励未能放入背包"));
+            self.push_log(format!(
+                "\u{652F}\u{7EBF}\u{59D4}\u{6258}\u{5B8C}\u{6210}\u{FF1A}{contract_name}\u{FF0C}\u{4F46}\u{5956}\u{52B1}\u{672A}\u{80FD}\u{653E}\u{5165}\u{80CC}\u{5305}"
+            ));
         }
     }
 
@@ -267,7 +280,9 @@ impl Game {
             }
         }
         if should_fail {
-            self.fail_side_contract("潜行失败：敌人进入警戒");
+            self.fail_side_contract(
+                "\u{6F5C}\u{884C}\u{5931}\u{8D25}\u{FF1A}\u{654C}\u{4EBA}\u{8FDB}\u{5165}\u{8B66}\u{6212}",
+            );
         }
     }
 
@@ -283,7 +298,9 @@ impl Game {
             contract_name = Some(contract.name.clone());
         }
         if let Some(contract_name) = contract_name {
-            self.push_log(format!("支线合约失败：{contract_name}（{reason}）"));
+            self.push_log(format!(
+                "\u{652F}\u{7EBF}\u{59D4}\u{6258}\u{5931}\u{8D25}\u{FF1A}{contract_name}\u{FF08}{reason}\u{FF09}"
+            ));
         }
     }
 
@@ -296,7 +313,7 @@ impl Game {
         });
 
         if should_fail {
-            self.fail_side_contract("超过回合限制");
+            self.fail_side_contract("\u{8D85}\u{8FC7}\u{56DE}\u{5408}\u{9650}\u{5236}");
         }
     }
 
@@ -316,7 +333,9 @@ impl Game {
 
     pub(in crate::game) fn log_required_quest_progress(&mut self) {
         let (collected, total) = self.required_quest_progress();
-        self.push_log(format!("必需任务物进度：{collected}/{total}"));
+        self.push_log(format!(
+            "\u{5FC5}\u{9700}\u{59D4}\u{6258}\u{7269}\u{8FDB}\u{5EA6}\u{FF1A}{collected}/{total}"
+        ));
         if let Some(line) = self.side_contract_progress_line() {
             self.push_log(line);
         }

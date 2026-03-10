@@ -48,6 +48,7 @@ mod tests {
         let moved = game.try_move_player(package_pos.x - from.x, package_pos.y - from.y);
         assert!(moved);
         assert!(game.player.has_item("package"));
+        assert!(game.log.iter().any(|line| line.contains("已取得包裹")));
     }
 
     #[test]

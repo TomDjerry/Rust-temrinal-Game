@@ -1,8 +1,11 @@
 use super::*;
+use crate::game::map::TileType;
+use crate::game::ui::{InventoryGroup, MapCellKind};
 
 impl Game {
     pub(super) fn inventory_item_view_for(&self, stack: &InventoryStack) -> InventoryItemView {
-        let (name, can_use, can_drop, attr_desc) = self
+        let equipped = self.is_item_equipped(&stack.item_id);
+        let (name, group, can_use, can_drop, action_label, attr_desc) = self
             .data
             .item_defs
             .get(&stack.item_id)
@@ -10,6 +13,7 @@ impl Game {
                 let (can_use, can_drop) = self
                     .item_permissions(&stack.item_id)
                     .unwrap_or((false, false));
+                let group = inventory_group_for_effect(def.effect);
                 let attr_desc = match def.effect {
                     ItemEffectDef::Consumable { heal } => format!("回复 {heal} HP"),
                     ItemEffectDef::BuffConsumable {
@@ -61,16 +65,35 @@ impl Game {
                         tags.join(" ")
                     }
                 };
-                (def.name.clone(), can_use, can_drop, attr_desc)
+                let action_label = inventory_action_label(group, equipped, can_use, can_drop);
+                (
+                    def.name.clone(),
+                    group,
+                    can_use,
+                    can_drop,
+                    action_label,
+                    attr_desc,
+                )
             })
-            .unwrap_or_else(|| (stack.item_id.clone(), false, false, String::new()));
+            .unwrap_or_else(|| {
+                (
+                    stack.item_id.clone(),
+                    InventoryGroup::Other,
+                    false,
+                    false,
+                    "不可操作".to_string(),
+                    String::new(),
+                )
+            });
 
         InventoryItemView {
             name,
             qty: stack.qty,
+            group,
             can_use,
             can_drop,
-            equipped: self.is_item_equipped(&stack.item_id),
+            equipped,
+            action_label,
             attr_desc,
         }
     }
@@ -145,6 +168,7 @@ impl Game {
             return MapCell {
                 ch: '@',
                 tone: MapTone::Visible,
+                kind: MapCellKind::Player,
             };
         }
 
@@ -152,6 +176,7 @@ impl Game {
             return MapCell {
                 ch: ' ',
                 tone: MapTone::Hidden,
+                kind: MapCellKind::Unknown,
             };
         }
 
@@ -164,6 +189,7 @@ impl Game {
                 return MapCell {
                     ch: monster.glyph,
                     tone: MapTone::Visible,
+                    kind: MapCellKind::Monster,
                 };
             }
 
@@ -177,6 +203,7 @@ impl Game {
                 return MapCell {
                     ch,
                     tone: MapTone::Visible,
+                    kind: MapCellKind::Item,
                 };
             }
 
@@ -188,27 +215,79 @@ impl Game {
                 return MapCell {
                     ch: '^',
                     tone: MapTone::Visible,
+                    kind: MapCellKind::Trap,
                 };
             }
 
             return MapCell {
                 ch: self.map.base_glyph(pos),
                 tone: MapTone::Visible,
+                kind: map_cell_kind_for_tile(self.map.tile(pos).map(|tile| tile.tile_type)),
             };
         }
 
         MapCell {
             ch: self.map.base_glyph(pos),
             tone: MapTone::Explored,
+            kind: map_cell_kind_for_tile(self.map.tile(pos).map(|tile| tile.tile_type)),
         }
+    }
+}
+
+fn inventory_group_for_effect(effect: ItemEffectDef) -> InventoryGroup {
+    match effect {
+        ItemEffectDef::Equipment { slot, .. } => match slot {
+            EquipmentSlot::Weapon => InventoryGroup::Weapon,
+            EquipmentSlot::Armor => InventoryGroup::Armor,
+            EquipmentSlot::Accessory => InventoryGroup::Accessory,
+        },
+        ItemEffectDef::Consumable { .. } | ItemEffectDef::BuffConsumable { .. } => {
+            InventoryGroup::Consumable
+        }
+        ItemEffectDef::QuestPackage | ItemEffectDef::QuestItem { .. } => InventoryGroup::Quest,
+    }
+}
+
+fn inventory_action_label(
+    group: InventoryGroup,
+    equipped: bool,
+    can_use: bool,
+    can_drop: bool,
+) -> String {
+    if equipped {
+        "可卸下".to_string()
+    } else if matches!(group, InventoryGroup::Quest) && !can_use && !can_drop {
+        "任务物".to_string()
+    } else if can_use {
+        match group {
+            InventoryGroup::Weapon | InventoryGroup::Armor | InventoryGroup::Accessory => {
+                "可装备".to_string()
+            }
+            _ => "可使用".to_string(),
+        }
+    } else if can_drop {
+        "可丢弃".to_string()
+    } else {
+        "不可操作".to_string()
+    }
+}
+
+fn map_cell_kind_for_tile(tile_type: Option<TileType>) -> MapCellKind {
+    match tile_type {
+        Some(TileType::ClosedDoor | TileType::OpenDoor) => MapCellKind::Door,
+        Some(TileType::Wall) => MapCellKind::Wall,
+        Some(TileType::Floor) => MapCellKind::Floor,
+        Some(TileType::Exit) => MapCellKind::Exit,
+        None => MapCellKind::Unknown,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_support::{build_test_game, open_floor_map};
+    use super::super::test_support::{build_test_game, open_floor_map, test_monster};
     use super::super::*;
     use crate::game::map::TileType;
+    use crate::game::ui::{InventoryGroup, MapCellKind};
 
     #[test]
     fn inventory_item_view_should_describe_equipment_bonuses() {
@@ -225,6 +304,54 @@ mod tests {
         assert!(view.can_drop);
         assert!(view.attr_desc.contains("ATK+3"));
         assert!(view.attr_desc.contains("CRIT+10%"));
+    }
+
+    #[test]
+    fn inventory_item_view_should_group_items_by_slot_or_usage() {
+        let game = build_test_game(111);
+
+        let weapon = game.inventory_item_view_for(&InventoryStack {
+            item_id: "rust_sword".to_string(),
+            qty: 1,
+        });
+        let consumable = game.inventory_item_view_for(&InventoryStack {
+            item_id: "healing_potion".to_string(),
+            qty: 1,
+        });
+        let quest = game.inventory_item_view_for(&InventoryStack {
+            item_id: "delivery_note".to_string(),
+            qty: 1,
+        });
+
+        assert_eq!(weapon.group, InventoryGroup::Weapon);
+        assert_eq!(consumable.group, InventoryGroup::Consumable);
+        assert_eq!(quest.group, InventoryGroup::Quest);
+    }
+
+    #[test]
+    fn inventory_item_view_should_expose_action_label_for_current_state() {
+        let mut game = build_test_game(112);
+        game.monsters.clear();
+        let _ = game.add_item_to_inventory("rust_sword", 1);
+        let sword_index = game
+            .inventory_entries()
+            .iter()
+            .position(|entry| entry.item_id == "rust_sword")
+            .expect("sword index");
+        game.inventory_selected = sword_index;
+        game.try_equip_item("rust_sword");
+
+        let equipped = game.inventory_item_view_for(&InventoryStack {
+            item_id: "rust_sword".to_string(),
+            qty: 1,
+        });
+        let quest = game.inventory_item_view_for(&InventoryStack {
+            item_id: "delivery_note".to_string(),
+            qty: 1,
+        });
+
+        assert_eq!(equipped.action_label, "可卸下");
+        assert_eq!(quest.action_label, "任务物");
     }
 
     #[test]
@@ -342,5 +469,47 @@ mod tests {
 
         assert_eq!(snapshot.map_rows[2][3].ch, '+');
         assert_eq!(snapshot.map_rows[3][2].ch, '^');
+    }
+
+    #[test]
+    fn snapshot_cell_view_should_classify_visible_entities_and_tiles() {
+        let mut game = build_test_game(113);
+        game.monsters.clear();
+        game.ground_items.clear();
+        game.map = open_floor_map(8, 8, 1..=6, 1..=6);
+        game.player.pos = Pos::new(2, 2);
+        game.monsters.push(test_monster(
+            "slime",
+            "史莱姆",
+            's',
+            Pos::new(3, 2),
+            Stats {
+                hp: 8,
+                max_hp: 8,
+                atk: 3,
+                def: 1,
+            },
+        ));
+        game.ground_items.push(GroundItem {
+            item_id: "healing_potion".to_string(),
+            pos: Pos::new(2, 3),
+        });
+        game.traps = vec![Trap {
+            pos: Pos::new(2, 4),
+            damage: 3,
+            triggered: false,
+        }];
+        game.map.set_tile_type(Pos::new(4, 2), TileType::ClosedDoor);
+        game.map.set_tile_type(Pos::new(1, 2), TileType::Wall);
+        game.recompute_fov();
+
+        let snapshot = game.snapshot();
+
+        assert_eq!(snapshot.map_rows[2][2].kind, MapCellKind::Player);
+        assert_eq!(snapshot.map_rows[2][3].kind, MapCellKind::Monster);
+        assert_eq!(snapshot.map_rows[3][2].kind, MapCellKind::Item);
+        assert_eq!(snapshot.map_rows[4][2].kind, MapCellKind::Trap);
+        assert_eq!(snapshot.map_rows[2][4].kind, MapCellKind::Door);
+        assert_eq!(snapshot.map_rows[2][1].kind, MapCellKind::Wall);
     }
 }

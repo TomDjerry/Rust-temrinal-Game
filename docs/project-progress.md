@@ -1,6 +1,6 @@
 ﻿# 项目进度台账（Dungeon Courier）
 
-最后更新：2026-03-08（环境交互+运行时重构）
+最后更新：2026-03-08（UI 可读性优化）
 
 ## 已实现（Done）
 - [x] 项目基础结构拆分：`game/mod/data/map/path/combat`
@@ -64,6 +64,8 @@
 - [x] 支线合约进阶：`Collect` 合约支持 `time_limit / stealth / dual-constraint` 约束生成，失败后停止进度与奖励
 - [x] 支线合约面板增强：显示状态、约束明细与失败原因，并与 AI 警戒/回合推进联动
 - [x] Help 增强：补充 ATK/DEF/CRIT/EVA/PEN/RES 属性说明
+- [x] UI 可读性优化：地图按对象类别着色（玩家/敌人/物品/门/陷阱/地形）
+- [x] 背包可读性优化：按武器/护甲/饰品/消耗品/任务物/其他分组显示，并强化当前选中项与操作提示
 - [x] 背包属性标注：装备/消耗品显示具体加成与效果说明
 - [x] 运行时重构阶段 1：`game` 按 `actions/ai/contracts/inventory/save/snapshot/util` 拆分，降低 `mod.rs` 复杂度
 - [x] 维护性重构：`contracts` 拆为 `contract_generation / contract_runtime`，清理约束生成魔法数字
@@ -86,9 +88,9 @@
 - 构建：`cargo build`
 
 ## 本次验证记录（2026-03-08）
-- `cargo test`：69/69 通过
+- `cargo test`：77/77 通过
 - `cargo clippy --all-targets --all-features -- -D warnings`：通过
-- `cargo build`：通过
+- `cargo build --target-dir target/build-check`：通过
 - `cargo fmt`：通过
 
 ### 本次变更摘要
@@ -97,9 +99,11 @@
 - 门系统：撞门自动开、显式关门（c键），关闭门阻挡移动与视线
 - 环境生成：随机在走廊放门（≤4）、开阔区域放陷阱（≤4）
 - BFS 路径算法：`bfs_next_step` / `bfs_distance`（预留怪物寻路）
-- 运行时重构：`game/mod.rs` 拆分为 actions/ai/contracts/inventory/save/snapshot/util
+- 运行时重构：game/mod.rs 拆分为 actions/ai/contracts/inventory/save/snapshot/util
+- UI 可读性：地图分类配色，背包按槽位/用途分组并高亮当前可操作项
 
 ## 下次续开发建议入口
 1. 装备词条阶段 3：元素抗性/状态抗性并接入效果结算。
 2. 扩展更多支线约束与目标组合（如位置、击杀类型、连击/无伤等），继续复用当前约束层。
 3. 继续迁移剩余测试到更贴近模块的位置，逐步缩小 `src/game/mod.rs` 中的测试体量。
+

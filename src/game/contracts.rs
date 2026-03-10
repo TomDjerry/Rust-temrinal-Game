@@ -316,6 +316,7 @@ mod tests {
         assert!(!game.won);
         let last_log = game.log.back().cloned().unwrap_or_default();
         assert!(last_log.contains("0/1"));
+        assert!(last_log.contains("必需委托物"));
     }
 
     #[test]
@@ -331,6 +332,7 @@ mod tests {
 
         assert!(picked);
         assert!(game.log.iter().any(|line| line.contains("1/1")));
+        assert!(game.log.iter().any(|line| line.contains("必需委托物进度")));
     }
 
     #[test]
